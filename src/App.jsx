@@ -1,48 +1,214 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Soundfont from "soundfont-player";
+
+
+function IconBase({ children, className = "h-4 w-4", viewBox = "0 0 24 24" }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox={viewBox}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+function EyeIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+      <circle cx="12" cy="12" r="3" />
+    </IconBase>
+  );
+}
+
+function EyeOffIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M3 3l18 18" />
+      <path d="M10.6 10.7a3 3 0 0 0 4.2 4.2" />
+      <path d="M9.9 5.1A12.5 12.5 0 0 1 12 5c6.5 0 10 7 10 7a18.7 18.7 0 0 1-3.2 4.2" />
+      <path d="M6.2 6.3C3.7 8 2 12 2 12s3.5 7 10 7a10.8 10.8 0 0 0 4.3-.8" />
+    </IconBase>
+  );
+}
+
+function RefreshIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M21 2v6h-6" />
+      <path d="M3 12a9 9 0 0 1 15.5-6.4L21 8" />
+      <path d="M3 22v-6h6" />
+      <path d="M21 12a9 9 0 0 1-15.5 6.4L3 16" />
+    </IconBase>
+  );
+}
+
+function VolumeIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+      <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+    </IconBase>
+  );
+}
+
+function StopIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <rect x="6" y="6" width="12" height="12" rx="1.5" />
+    </IconBase>
+  );
+}
+
+function ResetIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M4 4v6h6" />
+      <path d="M20 20v-6h-6" />
+      <path d="M20 9A8 8 0 0 0 6.3 5.7L4 8" />
+      <path d="M4 15a8 8 0 0 0 13.7 3.3L20 16" />
+    </IconBase>
+  );
+}
 
 const LETTERS = ["C", "D", "E", "F", "G", "A", "B"];
 const NATURAL_OFFSETS = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 const ACCIDENTAL_ASCII = { [-1]: "b", 0: "", 1: "#" };
 const ACCIDENTAL_DISPLAY = { [-1]: "♭", 0: "", 1: "♯" };
-
-const SOUNDFONT_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/soundfont-player@0.15.7/dist/soundfont-player.min.js";
+const MIN_NOTES = 2;
+const MAX_NOTES = 24;
+const TWELVE_TONE_MIN_NOTES = 4;
+const TWELVE_TONE_MAX_NOTES = 12;
+const MIN_TEMPO = 30;
+const MAX_TEMPO = 200;
+const DEFAULT_NOTE_COUNT = 4;
+const DEFAULT_TEMPO = 50;
+const MIN_VOLUME = 0;
+const MAX_VOLUME = 100;
+const DEFAULT_VOLUME = 50;
+const INTERNAL_VOLUME_BOOST = 9.0;
+const SOUNDFONT_GAIN_BOOST = 16.0;
+const DEFAULT_INSTRUMENT = "piano";
+const DEFAULT_INTERVAL_KEYS = ["P4", "P5", "P8"];
+const DEFAULT_CLEF_KEYS = ["treble"];
+const SETTINGS_KEY = "intervalTrainer.settings.v10";
+const STATS_KEY = "intervalTrainer.stats.v10";
 const SOUNDFONT_LIBRARY = "MusyngKite";
 const SOUNDFONT_BASE_URL = "https://gleitz.github.io/midi-js-soundfonts";
 
-const MIN_NOTES = 2;
-const MAX_NOTES = 24;
-const MIN_TEMPO = 30;
-const MAX_TEMPO = 200;
-const DEFAULT_TEMPO = 72;
-const DEFAULT_VOLUME = 70;
-
-const INSTRUMENTS = [
-  { value: "human", label: "Voz / coro", soundfont: "choir_aahs", fallback: "voice", sustain: true },
-  { value: "voiceOohs", label: "Voz oohs", soundfont: "voice_oohs", fallback: "voice", sustain: true },
-  { value: "organ", label: "Órgano", soundfont: "church_organ", fallback: "organ", sustain: true },
-  { value: "strings", label: "Cuerdas", soundfont: "string_ensemble_1", fallback: "strings", sustain: true },
-  { value: "cello", label: "Violonchelo", soundfont: "cello", fallback: "strings", sustain: true },
-  { value: "piano", label: "Piano acústico", soundfont: "acoustic_grand_piano", fallback: "piano", sustain: false },
-  { value: "brightPiano", label: "Piano brillante", soundfont: "bright_acoustic_piano", fallback: "piano", sustain: false },
-  { value: "marimba", label: "Marimba", soundfont: "marimba", fallback: "mallet", sustain: false },
-  { value: "vibraphone", label: "Vibráfono", soundfont: "vibraphone", fallback: "mallet", sustain: false },
-  { value: "glockenspiel", label: "Glockenspiel", soundfont: "glockenspiel", fallback: "mallet", sustain: false },
-  { value: "bass", label: "Bajo acústico", soundfont: "acoustic_bass", fallback: "bass", sustain: false },
+const CLEFS = [
+  { key: "treble", label: "Clave de sol", symbol: "𝄞", tag: "", vex: "treble", minMidi: 60, maxMidi: 88, centerMinMidi: 65, centerMaxMidi: 79, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
+  { key: "treble8va", label: "Clave de sol 8va alta", symbol: "𝄞", tag: "8va", vex: "treble", displayOctaveShift: -1, minMidi: 72, maxMidi: 100, centerMinMidi: 77, centerMaxMidi: 91, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
+  { key: "treble15ma", label: "Clave de sol 15ma alta", symbol: "𝄞", tag: "15ma", vex: "treble", displayOctaveShift: -2, minMidi: 84, maxMidi: 108, centerMinMidi: 84, centerMaxMidi: 100, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
+  { key: "soprano", label: "Clave de do en 1ra", symbol: "𝄡", tag: "I", vex: "soprano", minMidi: 57, maxMidi: 81, centerMinMidi: 62, centerMaxMidi: 74, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 100 },
+  { key: "mezzo", label: "Clave de do en 2da", symbol: "𝄡", tag: "II", vex: "mezzo-soprano", minMidi: 55, maxMidi: 79, centerMinMidi: 60, centerMaxMidi: 72, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 86 },
+  { key: "alto", label: "Clave de do en 3ra", symbol: "𝄡", tag: "III", vex: "alto", minMidi: 53, maxMidi: 77, centerMinMidi: 58, centerMaxMidi: 70, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 72 },
+  { key: "tenor", label: "Clave de do en 4ta", symbol: "𝄡", tag: "IV", vex: "tenor", minMidi: 48, maxMidi: 72, centerMinMidi: 53, centerMaxMidi: 65, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 58 },
+  { key: "bass", label: "Clave de fa", symbol: "𝄢", tag: "", vex: "bass", minMidi: 40, maxMidi: 67, centerMinMidi: 45, centerMaxMidi: 58, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
+  { key: "bass8vb", label: "Clave de fa 8va baja", symbol: "𝄢", tag: "8vb", vex: "bass", displayOctaveShift: 1, minMidi: 28, maxMidi: 55, centerMinMidi: 33, centerMaxMidi: 46, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
 ];
 
-const INTERVALS = [
-  { key: "m2", short: "2m", semitones: 1 },
-  { key: "M2", short: "2M", semitones: 2 },
-  { key: "m3", short: "3m", semitones: 3 },
-  { key: "M3", short: "3M", semitones: 4 },
-  { key: "P4", short: "4J", semitones: 5 },
-  { key: "TT", short: "TT", semitones: 6 },
-  { key: "P5", short: "5J", semitones: 7 },
-  { key: "m6", short: "6m", semitones: 8 },
-  { key: "M6", short: "6M", semitones: 9 },
-  { key: "m7", short: "7m", semitones: 10 },
-  { key: "M7", short: "7M", semitones: 11 },
-  { key: "P8", short: "8J", semitones: 12 },
+const INTERVAL_DEFINITIONS = [
+  { key: "m2", short: "2m", name: "Segunda menor", semitones: 1, diatonicSteps: 1 },
+  { key: "M2", short: "2M", name: "Segunda mayor", semitones: 2, diatonicSteps: 1 },
+  { key: "m3", short: "3m", name: "Tercera menor", semitones: 3, diatonicSteps: 2 },
+  { key: "M3", short: "3M", name: "Tercera mayor", semitones: 4, diatonicSteps: 2 },
+  { key: "P4", short: "4J", name: "Cuarta justa", semitones: 5, diatonicSteps: 3 },
+  { key: "TT", short: "TT", name: "Tritono", semitones: 6, diatonicSteps: 3, altDiatonicSteps: 4 },
+  { key: "P5", short: "5J", name: "Quinta justa", semitones: 7, diatonicSteps: 4 },
+  { key: "m6", short: "6m", name: "Sexta menor", semitones: 8, diatonicSteps: 5 },
+  { key: "M6", short: "6M", name: "Sexta mayor", semitones: 9, diatonicSteps: 5 },
+  { key: "m7", short: "7m", name: "Séptima menor", semitones: 10, diatonicSteps: 6 },
+  { key: "M7", short: "7M", name: "Séptima mayor", semitones: 11, diatonicSteps: 6 },
+  { key: "P8", short: "8J", name: "Octava justa", semitones: 12, diatonicSteps: 7 },
+];
+
+const MODEL_PATTERNS = [
+  { id: "l1-4j4j", label: "4J + 4J", steps: [{ intervalKey: "P4" }, { intervalKey: "P4" }] },
+  { id: "l1-5j5j", label: "5J + 5J", steps: [{ intervalKey: "P5" }, { intervalKey: "P5" }] },
+  { id: "l1-5up4down", label: "5J↗ + 4J↘", steps: [{ intervalKey: "P5", direction: 1 }, { intervalKey: "P4", direction: -1 }] },
+  { id: "l1-5down4up", label: "5J↘ + 4J↗", steps: [{ intervalKey: "P5", direction: -1 }, { intervalKey: "P4", direction: 1 }] },
+  { id: "l1-4up5down", label: "4J↗ + 5J↘", steps: [{ intervalKey: "P4", direction: 1 }, { intervalKey: "P5", direction: -1 }] },
+  { id: "l1-4down5up", label: "4J↘ + 5J↗", steps: [{ intervalKey: "P4", direction: -1 }, { intervalKey: "P5", direction: 1 }] },
+  { id: "l1-4j4j4j", label: "4J + 4J + 4J", steps: [{ intervalKey: "P4" }, { intervalKey: "P4" }, { intervalKey: "P4" }] },
+  { id: "l1-5j5j5j", label: "5J + 5J + 5J", steps: [{ intervalKey: "P5" }, { intervalKey: "P5" }, { intervalKey: "P5" }] },
+  { id: "l2-2M2M-up", label: "2M↗ + 2M↗", steps: [{ intervalKey: "M2", direction: 1 }, { intervalKey: "M2", direction: 1 }] },
+  { id: "l2-2m2m-up", label: "2m↗ + 2m↗", steps: [{ intervalKey: "m2", direction: 1 }, { intervalKey: "m2", direction: 1 }] },
+  { id: "l2-2M2M-down", label: "2M↘ + 2M↘", steps: [{ intervalKey: "M2", direction: -1 }, { intervalKey: "M2", direction: -1 }] },
+  { id: "l2-2m2m-down", label: "2m↘ + 2m↘", steps: [{ intervalKey: "m2", direction: -1 }, { intervalKey: "m2", direction: -1 }] },
+  { id: "l2-chromatic", label: "Escala cromática", steps: [{ intervalKey: "m2" }, { intervalKey: "m2" }, { intervalKey: "m2" }, { intervalKey: "m2" }] },
+  { id: "l2-whole-tone", label: "Escala de tonos enteros", steps: [{ intervalKey: "M2" }, { intervalKey: "M2" }, { intervalKey: "M2" }, { intervalKey: "M2" }] },
+  { id: "l2-4j-2M", label: "4J + 2M", steps: [{ intervalKey: "P4" }, { intervalKey: "M2" }] },
+  { id: "l2-4j-2m", label: "4J + 2m", steps: [{ intervalKey: "P4" }, { intervalKey: "m2" }] },
+  { id: "l2-5j-2M", label: "5J + 2M", steps: [{ intervalKey: "P5" }, { intervalKey: "M2" }] },
+  { id: "l2-5j-2m", label: "5J + 2m", steps: [{ intervalKey: "P5" }, { intervalKey: "m2" }] },
+  { id: "l3-3M3M", label: "3M + 3M", steps: [{ intervalKey: "M3" }, { intervalKey: "M3" }] },
+  { id: "l3-3m3m", label: "3m + 3m", steps: [{ intervalKey: "m3" }, { intervalKey: "m3" }] },
+  { id: "l3-aum4j", label: "aum. + 4J", steps: [{ intervalKey: "M3" }, { intervalKey: "M3" }, { intervalKey: "P4" }] },
+  { id: "l3-dis5j", label: "dis. + 5J", steps: [{ intervalKey: "m3" }, { intervalKey: "m3" }, { intervalKey: "P5" }] },
+  { id: "l4-tt4j", label: "TT + 4J", steps: [{ intervalKey: "TT" }, { intervalKey: "P4" }] },
+  { id: "l4-tt5j", label: "TT + 5J", steps: [{ intervalKey: "TT" }, { intervalKey: "P5" }] },
+  { id: "l4-tt2mtt", label: "TT + 2m + TT", steps: [{ intervalKey: "TT" }, { intervalKey: "m2" }, { intervalKey: "TT" }] },
+  { id: "l4-tt2Mtt", label: "TT + 2M + TT", steps: [{ intervalKey: "TT" }, { intervalKey: "M2" }, { intervalKey: "TT" }] },
+  { id: "l4-ttup5down", label: "TT↗ + 5J↘", steps: [{ intervalKey: "TT", direction: 1 }, { intervalKey: "P5", direction: -1 }] },
+  { id: "l4-ttdown4up", label: "TT↘ + 4J↗", steps: [{ intervalKey: "TT", direction: -1 }, { intervalKey: "P4", direction: 1 }] },
+  { id: "l5-6m6m", label: "6m + 6m", steps: [{ intervalKey: "m6" }, { intervalKey: "m6" }] },
+  { id: "l5-6M6M", label: "6M + 6M", steps: [{ intervalKey: "M6" }, { intervalKey: "M6" }] },
+  { id: "l5-6m3m", label: "6m + 3m", steps: [{ intervalKey: "m6" }, { intervalKey: "m3" }] },
+  { id: "l5-6M3M", label: "6M + 3M", steps: [{ intervalKey: "M6" }, { intervalKey: "M3" }] },
+  { id: "l6-7m", label: "7m", steps: [{ intervalKey: "m7" }] },
+  { id: "l6-7M", label: "7M", steps: [{ intervalKey: "M7" }] },
+  { id: "l6-7m2m", label: "7m + 2m", steps: [{ intervalKey: "m7" }, { intervalKey: "m2" }] },
+  { id: "l6-7M2M", label: "7M + 2M", steps: [{ intervalKey: "M7" }, { intervalKey: "M2" }] },
+  { id: "l6-7m4j", label: "7m + 4J", steps: [{ intervalKey: "m7" }, { intervalKey: "P4" }] },
+  { id: "l6-7M4j", label: "7M + 4J", steps: [{ intervalKey: "M7" }, { intervalKey: "P4" }] },
+];
+
+
+const INSTRUMENTS = [
+  { value: "choir", label: "Coro Aahs", soundfont: "choir_aahs", fallback: "voice", sustain: true },
+  { value: "voiceOohs", label: "Voz Oohs", soundfont: "voice_oohs", fallback: "voice", sustain: true },
+  { value: "synthVoice", label: "Voz sintética", soundfont: "synth_voice", fallback: "voice", sustain: true },
+  { value: "churchOrgan", label: "Órgano de iglesia", soundfont: "church_organ", fallback: "organ", sustain: true },
+  { value: "drawbarOrgan", label: "Órgano drawbar", soundfont: "drawbar_organ", fallback: "organ", sustain: true },
+  { value: "reedOrgan", label: "Órgano de lengüeta", soundfont: "reed_organ", fallback: "organ", sustain: true },
+  { value: "strings1", label: "Cuerdas I", soundfont: "string_ensemble_1", fallback: "strings", sustain: true },
+  { value: "strings2", label: "Cuerdas II", soundfont: "string_ensemble_2", fallback: "strings", sustain: true },
+  { value: "violin", label: "Violín", soundfont: "violin", fallback: "strings", sustain: true },
+  { value: "viola", label: "Viola", soundfont: "viola", fallback: "strings", sustain: true },
+  { value: "cello", label: "Violonchelo", soundfont: "cello", fallback: "strings", sustain: true },
+  { value: "piano", label: "Piano acústico", soundfont: "acoustic_grand_piano", fallback: "piano", sustain: false },
+  { value: "electricPiano", label: "Piano eléctrico", soundfont: "electric_piano_1", fallback: "piano", sustain: false },
+  { value: "harpsichord", label: "Clave / harpsichord", soundfont: "harpsichord", fallback: "piano", sustain: false },
+  { value: "celesta", label: "Celesta", soundfont: "celesta", fallback: "mallet", sustain: false },
+  { value: "musicBox", label: "Caja de música", soundfont: "music_box", fallback: "mallet", sustain: false },
+  { value: "marimba", label: "Marimba", soundfont: "marimba", fallback: "mallet", sustain: false },
+  { value: "vibraphone", label: "Vibráfono", soundfont: "vibraphone", fallback: "mallet", sustain: false },
+  { value: "flute", label: "Flauta", soundfont: "flute", fallback: "voice", sustain: true },
+];
+
+const PIANO_KEYS = [
+  { pc: 0, name: "C", display: "Do", type: "white" },
+  { pc: 1, name: "C#", display: "Do♯/Re♭", type: "black", left: "9%" },
+  { pc: 2, name: "D", display: "Re", type: "white" },
+  { pc: 3, name: "Eb", display: "Re♯/Mi♭", type: "black", left: "23.2%" },
+  { pc: 4, name: "E", display: "Mi", type: "white" },
+  { pc: 5, name: "F", display: "Fa", type: "white" },
+  { pc: 6, name: "F#", display: "Fa♯/Sol♭", type: "black", left: "51.7%" },
+  { pc: 7, name: "G", display: "Sol", type: "white" },
+  { pc: 8, name: "Ab", display: "Sol♯/La♭", type: "black", left: "65.9%" },
+  { pc: 9, name: "A", display: "La", type: "white" },
+  { pc: 10, name: "Bb", display: "La♯/Si♭", type: "black", left: "80.2%" },
+  { pc: 11, name: "B", display: "Si", type: "white" },
 ];
 
 function clamp(value, min, max) {
@@ -57,77 +223,353 @@ function midiToFreq(midi) {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
-function midiToNoteName(midi) {
-  const names = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"];
-  const pc = ((midi % 12) + 12) % 12;
-  const octave = Math.floor(midi / 12) - 1;
-  return `${names[pc]}${octave}`;
+function pitchClassOf(noteOrMidi) {
+  const midi = typeof noteOrMidi === "number" ? noteOrMidi : noteOrMidi?.midi;
+  return ((midi % 12) + 12) % 12;
+}
+
+function diatonicIndex(letter, octave) {
+  return octave * 7 + LETTERS.indexOf(letter);
+}
+
+function isAwkwardSpelling(letter, accidental) {
+  return (accidental === 1 && (letter === "E" || letter === "B")) || (accidental === -1 && (letter === "C" || letter === "F"));
+}
+
+function makeNote(letter, octave, accidental = 0) {
+  const midi = 12 * (octave + 1) + NATURAL_OFFSETS[letter] + accidental;
+  return {
+    id: `${letter}${ACCIDENTAL_ASCII[accidental]}${octave}`,
+    letter,
+    octave,
+    accidental,
+    midi,
+    label: `${letter}${ACCIDENTAL_DISPLAY[accidental]}${octave}`,
+  };
+}
+
+function buildAvailableNotes() {
+  const notes = [];
+  for (let octave = 0; octave <= 8; octave += 1) {
+    for (const letter of LETTERS) {
+      for (const accidental of [-1, 0, 1]) {
+        if (isAwkwardSpelling(letter, accidental)) continue;
+        const note = makeNote(letter, octave, accidental);
+        if (note.midi >= 24 && note.midi <= 108) notes.push(note);
+      }
+    }
+  }
+  return notes;
+}
+
+const AVAILABLE_NOTES = buildAvailableNotes();
+
+function getClefConfig(clefKey) {
+  return CLEFS.find((clef) => clef.key === clefKey) ?? CLEFS[0];
+}
+
+function getClefDisplay(clef) {
+  if (!clef?.tag) return clef?.symbol ?? "𝄞";
+  return `${clef.symbol}${clef.tag}`;
+}
+
+function noteToVexKey(note, clef) {
+  const shift = clef?.displayOctaveShift ?? 0;
+  return `${note.letter.toLowerCase()}/${note.octave + shift}`;
+}
+
+function getIntervalDefinition(intervalKey) {
+  return INTERVAL_DEFINITIONS.find((interval) => interval.key === intervalKey);
 }
 
 function noteNameForSoundFont(midi) {
   const names = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
-  const pc = ((midi % 12) + 12) % 12;
+  const pc = pitchClassOf(midi);
   const octave = Math.floor(midi / 12) - 1;
   return `${names[pc]}${octave}`;
 }
 
-function loadScriptOnce(src) {
-  if (typeof window === "undefined") return Promise.reject(new Error("Window no disponible"));
-  if (window.Soundfont) return Promise.resolve();
-  const existing = document.querySelector(`script[src="${src}"]`);
-  if (existing) {
-    return new Promise((resolve, reject) => {
-      existing.addEventListener("load", resolve, { once: true });
-      existing.addEventListener("error", reject, { once: true });
-    });
+function nearestMidiForPitchClass(pc, referenceMidi) {
+  let best = pc + 12 * 4;
+  let bestDistance = Infinity;
+  for (let midi = 36; midi <= 96; midi += 1) {
+    if (pitchClassOf(midi) !== pc) continue;
+    const distance = Math.abs(midi - referenceMidi);
+    if (distance < bestDistance) {
+      best = midi;
+      bestDistance = distance;
+    }
   }
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = src;
-    script.async = true;
-    script.onload = resolve;
-    script.onerror = reject;
-    document.body.appendChild(script);
+  return best;
+}
+
+function midiToSimpleNote(midi) {
+  const spellings = [
+    ["C", 0], ["C", 1], ["D", 0], ["E", -1], ["E", 0], ["F", 0],
+    ["F", 1], ["G", 0], ["A", -1], ["A", 0], ["B", -1], ["B", 0],
+  ];
+  const [letter, accidental] = spellings[pitchClassOf(midi)];
+  const octave = Math.floor(midi / 12) - 1;
+  return makeNote(letter, octave, accidental);
+}
+
+function transposeNote(note, interval, direction, clef) {
+  const currentDiatonic = diatonicIndex(note.letter, note.octave);
+  const targetDiatonic = currentDiatonic + direction * interval.diatonicSteps;
+  const targetLetter = LETTERS[((targetDiatonic % 7) + 7) % 7];
+  const targetOctave = Math.floor(targetDiatonic / 7);
+  const desiredMidi = note.midi + direction * interval.semitones;
+  const naturalMidi = 12 * (targetOctave + 1) + NATURAL_OFFSETS[targetLetter];
+  const accidental = desiredMidi - naturalMidi;
+  if (Math.abs(accidental) > 1) return null;
+  if (isAwkwardSpelling(targetLetter, accidental)) return null;
+  const result = makeNote(targetLetter, targetOctave, accidental);
+  if (result.midi < clef.minMidi || result.midi > clef.maxMidi) return null;
+  return result;
+}
+
+function sanitizeIntervalSelection(keys) {
+  const valid = INTERVAL_DEFINITIONS.map((item) => item.key);
+  return [...new Set(keys)].filter((key) => valid.includes(key));
+}
+
+function sanitizeClefSelection(keys) {
+  const valid = CLEFS.map((item) => item.key);
+  const cleaned = [...new Set(keys)].filter((key) => valid.includes(key));
+  return cleaned.length ? cleaned : DEFAULT_CLEF_KEYS;
+}
+
+function getTwelveToneIntervalKeys(keys) {
+  return sanitizeIntervalSelection(keys).filter((key) => key !== "P8");
+}
+
+function getNotesForClef(clefKey) {
+  const clef = getClefConfig(clefKey);
+  const all = AVAILABLE_NOTES.filter((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi);
+  const central = all.filter((note) => note.midi >= clef.centerMinMidi && note.midi <= clef.centerMaxMidi);
+  return { all, central: central.length ? central : all };
+}
+
+function getCandidates(currentNote, selectedIntervalKeys, clefKey, usedPitchClasses = null) {
+  const clef = getClefConfig(clefKey);
+  const candidates = [];
+  const intervalKeys = sanitizeIntervalSelection(selectedIntervalKeys);
+
+  intervalKeys.forEach((intervalKey) => {
+    const interval = getIntervalDefinition(intervalKey);
+    if (!interval) return;
+    [1, -1].forEach((direction) => {
+      const candidate = transposeNote(currentNote, interval, direction, clef);
+      if (!candidate) return;
+      if (usedPitchClasses && usedPitchClasses.has(pitchClassOf(candidate))) return;
+      candidates.push({ note: candidate, intervalKey, direction });
+    });
+  });
+
+  return candidates;
+}
+
+
+
+function getIntervalBySemitones(semitones, allowedIntervalKeys = []) {
+  const allowed = new Set(allowedIntervalKeys.length ? allowedIntervalKeys : INTERVAL_DEFINITIONS.map((item) => item.key));
+  return INTERVAL_DEFINITIONS.find((interval) => allowed.has(interval.key) && interval.semitones === semitones);
+}
+
+function getTransitionData(sequence, allowedIntervalKeys = []) {
+  if (!Array.isArray(sequence) || sequence.length < 2) return [];
+  return sequence.slice(1).map((note, index) => {
+    const previous = sequence[index];
+    const diff = Math.abs(note.midi - previous.midi);
+    const interval = getIntervalBySemitones(diff, allowedIntervalKeys);
+    const direction = note.midi >= previous.midi ? 1 : -1;
+    return {
+      intervalKey: interval?.key ?? `${diff}`,
+      short: interval?.short ?? `${diff}`,
+      direction,
+    };
   });
 }
 
-function buildMelody(count, selectedIntervals) {
-  const safeCount = clamp(count, MIN_NOTES, MAX_NOTES);
-  const pool = selectedIntervals.length ? selectedIntervals : ["P4", "P5", "P8"];
-  const allowed = INTERVALS.filter((item) => pool.includes(item.key));
-  let current = 60 + Math.floor(Math.random() * 13); // C4 to C5
-  const notes = [current];
-  const intervalLabels = [];
+function getIntervalLabels(sequence, allowedIntervalKeys = []) {
+  return getTransitionData(sequence, allowedIntervalKeys).map((transition) => `${transition.short} ${transition.direction > 0 ? "↑" : "↓"}`);
+}
 
-  for (let i = 1; i < safeCount; i += 1) {
-    let next = current;
-    let chosen = null;
-    for (let attempt = 0; attempt < 24; attempt += 1) {
-      chosen = randomItem(allowed);
-      const direction = Math.random() > 0.5 ? 1 : -1;
-      next = current + chosen.semitones * direction;
-      if (next >= 48 && next <= 84) {
-        intervalLabels.push(`${chosen.short} ${direction > 0 ? "↑" : "↓"}`);
+function transitionMatchesModelStep(transition, modelStep) {
+  if (!transition || !modelStep) return false;
+  if (transition.intervalKey !== modelStep.intervalKey) return false;
+  if (typeof modelStep.direction === "number" && transition.direction !== modelStep.direction) return false;
+  return true;
+}
+
+function detectModelLabels(sequence, allowedIntervalKeys = []) {
+  const transitions = getTransitionData(sequence, allowedIntervalKeys);
+  const labels = [];
+  MODEL_PATTERNS.forEach((pattern) => {
+    if (pattern.steps.length > transitions.length) return;
+    for (let start = 0; start <= transitions.length - pattern.steps.length; start += 1) {
+      const slice = transitions.slice(start, start + pattern.steps.length);
+      if (slice.every((transition, index) => transitionMatchesModelStep(transition, pattern.steps[index]))) {
+        labels.push(pattern.label);
         break;
       }
     }
-    current = clamp(next, 48, 84);
-    notes.push(current);
+  });
+  return [...new Set(labels)].slice(0, 10);
+}
+function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys) {
+  const safeCount = clamp(noteCount, MIN_NOTES, MAX_NOTES);
+  const intervals = sanitizeIntervalSelection(selectedIntervalKeys);
+  const clefKey = randomItem(sanitizeClefSelection(selectedClefKeys));
+  const { all, central } = getNotesForClef(clefKey);
+  let current = randomItem(central);
+  const sequence = [current];
+
+  for (let i = 1; i < safeCount; i += 1) {
+    const candidates = getCandidates(current, intervals, clefKey);
+    if (!candidates.length) {
+      current = randomItem(all);
+    } else {
+      const filtered = candidates.filter((item) => sequence.length < 2 || item.note.id !== sequence[sequence.length - 2].id);
+      current = randomItem(filtered.length ? filtered : candidates).note;
+    }
+    sequence.push(current);
   }
 
-  return { notes, intervalLabels };
+  return {
+    id: `${Date.now()}-${Math.random()}`,
+    sequence,
+    clefKey,
+    mode: "intervals",
+    intervalKeys: intervals,
+    startNote: sequence[0]?.label ?? "—",
+  };
 }
 
-function Chip({ active, children, onClick, disabled }) {
+function buildTwelveToneSeries(noteCount, selectedIntervalKeys, selectedClefKeys) {
+  const safeCount = clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES);
+  const intervals = getTwelveToneIntervalKeys(selectedIntervalKeys);
+  const clefKey = randomItem(sanitizeClefSelection(selectedClefKeys));
+  const { central, all } = getNotesForClef(clefKey);
+  const startingPool = central.length ? central : all;
+
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    const start = randomItem(startingPool);
+    const sequence = [start];
+    const used = new Set([pitchClassOf(start)]);
+
+    function backtrack(current) {
+      if (sequence.length >= safeCount) return true;
+      const candidates = getCandidates(current, intervals, clefKey, used)
+        .sort(() => Math.random() - 0.5);
+      for (const candidate of candidates) {
+        sequence.push(candidate.note);
+        used.add(pitchClassOf(candidate.note));
+        if (backtrack(candidate.note)) return true;
+        used.delete(pitchClassOf(candidate.note));
+        sequence.pop();
+      }
+      return false;
+    }
+
+    if (backtrack(start)) {
+      return {
+        id: `${Date.now()}-${Math.random()}`,
+        sequence,
+        clefKey,
+        mode: "twelveTone",
+        intervalKeys: intervals,
+        startNote: sequence[0]?.label ?? "—",
+      };
+    }
+  }
+
+  const fallback = buildMelody(safeCount, intervals.length ? intervals : ["m2", "M2", "m3", "M3", "P4", "TT", "P5"], [clefKey]);
+  const used = new Set();
+  const filtered = [];
+  fallback.sequence.forEach((note) => {
+    const pc = pitchClassOf(note);
+    if (!used.has(pc) && filtered.length < safeCount) {
+      used.add(pc);
+      filtered.push(note);
+    }
+  });
+  return {
+    ...fallback,
+    sequence: filtered.length >= TWELVE_TONE_MIN_NOTES ? filtered : fallback.sequence.slice(0, safeCount),
+    mode: "twelveTone",
+  };
+}
+
+function initialSettings() {
+  const defaults = {
+    noteCount: DEFAULT_NOTE_COUNT,
+    tempo: DEFAULT_TEMPO,
+    volume: DEFAULT_VOLUME,
+    instrument: DEFAULT_INSTRUMENT,
+    selectedIntervalKeys: DEFAULT_INTERVAL_KEYS,
+    selectedClefKeys: DEFAULT_CLEF_KEYS,
+    useTwelveToneSeries: false,
+  };
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) || "null");
+    if (!stored) return defaults;
+    return {
+      ...defaults,
+      ...stored,
+      selectedIntervalKeys: sanitizeIntervalSelection(stored.selectedIntervalKeys ?? defaults.selectedIntervalKeys),
+      selectedClefKeys: sanitizeClefSelection(stored.selectedClefKeys ?? defaults.selectedClefKeys),
+      noteCount: clamp(Number(stored.noteCount ?? defaults.noteCount), MIN_NOTES, MAX_NOTES),
+      tempo: clamp(Number(stored.tempo ?? defaults.tempo), MIN_TEMPO, MAX_TEMPO),
+      volume: clamp(Number(stored.volume ?? defaults.volume), MIN_VOLUME, MAX_VOLUME),
+      instrument: INSTRUMENTS.some((item) => item.value === stored.instrument) ? stored.instrument : DEFAULT_INSTRUMENT,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function initialStats() {
+  const defaults = { totalSeconds: 0, exercises: 0, correct: 0, incorrect: 0 };
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(STATS_KEY) || "null");
+    return stored ? { ...defaults, ...stored } : defaults;
+  } catch {
+    return defaults;
+  }
+}
+
+function formatTime(seconds) {
+  const safe = Math.max(0, Math.floor(seconds));
+  const hrs = Math.floor(safe / 3600);
+  const mins = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  if (hrs > 0) return `${hrs}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function scoreFromStats(stats) {
+  const total = stats.correct + stats.incorrect;
+  if (!total) return 0;
+  return Math.round((stats.correct / total) * 100);
+}
+
+function Badge({ children }) {
+  return <span className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">{children}</span>;
+}
+
+function SelectionChip({ active, onClick, children, disabled = false, title }) {
   return (
     <button
       type="button"
-      disabled={disabled}
       onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={title}
       className={`rounded-full border px-3 py-2 text-sm transition ${
         active
-          ? "border-stone-950 bg-stone-950 text-white"
-          : "border-stone-300 bg-white text-stone-700 hover:border-stone-500"
+          ? "border-zinc-900 bg-zinc-900 text-white"
+          : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500"
       } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
     >
       {children}
@@ -135,52 +577,376 @@ function Chip({ active, children, onClick, disabled }) {
   );
 }
 
-function IconButton({ children, onClick, variant = "dark", disabled }) {
-  const classes = variant === "dark"
-    ? "bg-stone-950 text-white hover:bg-stone-800"
-    : "border border-stone-300 bg-white text-stone-900 hover:border-stone-500";
+function ActionButton({ active, onClick, children, disabled = false }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-2xl px-5 py-3 text-sm font-semibold transition ${classes} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+      className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-2xl border px-5 py-3 text-sm font-semibold transition ${
+        active
+          ? "border-zinc-950 bg-zinc-950 text-white shadow-sm"
+          : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-100"
+      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
     >
       {children}
     </button>
   );
 }
 
-export default function IntervalTrainerSoundfontPreview() {
+function ClefChip({ clef, active, onClick }) {
+  const previewRef = useRef(null);
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function renderClefPreview() {
+      if (!previewRef.current) return;
+      previewRef.current.innerHTML = "";
+
+      try {
+        const VF = await import("vexflow");
+        if (disposed || !previewRef.current) return;
+
+        const { Renderer, Stave } = VF;
+        const width = 150;
+        const height = 74;
+        const renderer = new Renderer(previewRef.current, Renderer.Backends.SVG);
+        renderer.resize(width, height);
+        const context = renderer.getContext();
+        const stave = new Stave(8, 4, width - 16);
+        stave.addClef(clef.vex);
+        stave.setContext(context).draw();
+
+        const svg = previewRef.current.querySelector("svg");
+        if (svg) {
+          svg.setAttribute("aria-hidden", "true");
+          svg.style.width = "100%";
+          svg.style.height = "100%";
+
+          if (clef.tag) {
+            const ns = "http://www.w3.org/2000/svg";
+            const tag = document.createElementNS(ns, "text");
+            tag.setAttribute("x", "116");
+            tag.setAttribute("y", clef.tag === "8vb" ? "52" : "22");
+            tag.setAttribute("font-size", "13");
+            tag.setAttribute("font-weight", "700");
+            tag.setAttribute("fill", "currentColor");
+            tag.textContent = clef.tag;
+            svg.appendChild(tag);
+          }
+        }
+      } catch (error) {
+        if (!previewRef.current) return;
+        previewRef.current.innerHTML = `<div style="font-family:serif;font-size:34px;line-height:72px;text-align:center;">${clef.symbol}${clef.tag ?? ""}</div>`;
+      }
+    }
+
+    renderClefPreview();
+    return () => {
+      disposed = true;
+    };
+  }, [clef]);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={clef.label}
+      aria-label={clef.label}
+      className={`relative h-24 min-w-[142px] rounded-2xl border px-3 py-2 transition ${
+        active ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500"
+      }`}
+    >
+      <div ref={previewRef} className={`h-full w-full ${active ? "clef-preview-active" : "clef-preview"}`} />
+    </button>
+  );
+}
+
+
+function noteY(note, clef) {
+  const shift = clef.displayOctaveShift ?? 0;
+  const noteIndex = diatonicIndex(note.letter, note.octave + shift);
+  const refIndex = diatonicIndex(clef.staffRefLetter, clef.staffRefOctave);
+  return clef.staffRefY - (noteIndex - refIndex) * 7;
+}
+
+function ledgerLinesForY(x, y) {
+  const lines = [];
+  for (let lineY = 30; lineY >= y - 1; lineY -= 14) lines.push({ x, y: lineY });
+  for (let lineY = 114; lineY <= y + 1; lineY += 14) lines.push({ x, y: lineY });
+  return lines;
+}
+
+function Staff({ exercise, attemptNotes = [], revealFull = false }) {
+  const containerRef = useRef(null);
+  const [renderError, setRenderError] = useState("");
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function renderStaff() {
+      if (!containerRef.current) return;
+      containerRef.current.innerHTML = "";
+      setRenderError("");
+
+      const clef = getClefConfig(exercise?.clefKey ?? "treble");
+      const target = exercise?.sequence ?? [];
+      const entries = revealFull
+        ? target.map((note, index) => ({ note, status: index === 0 ? "start" : "answer" }))
+        : attemptNotes;
+
+      if (!entries.length) return;
+
+      try {
+        const VF = await import("vexflow");
+        if (disposed || !containerRef.current) return;
+
+        const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental } = VF;
+        const width = Math.max(560, 150 + entries.length * 82);
+        const height = 185;
+        const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
+        renderer.resize(width, height);
+        const context = renderer.getContext();
+        const stave = new Stave(20, 38, width - 45);
+        stave.addClef(clef.vex);
+        stave.setContext(context).draw();
+
+        const accidentalState = new Map();
+        const vexNotes = entries.map(({ note }) => {
+          const staveNote = new StaveNote({
+            clef: clef.vex,
+            keys: [noteToVexKey(note, clef)],
+            duration: "w",
+          });
+
+          const stateKey = `${note.letter}${note.octave + (clef.displayOctaveShift ?? 0)}`;
+          const previousAccidental = accidentalState.get(stateKey) ?? 0;
+          if (note.accidental !== 0) {
+            staveNote.addModifier(new Accidental(ACCIDENTAL_ASCII[note.accidental]), 0);
+          } else if (previousAccidental !== 0) {
+            staveNote.addModifier(new Accidental("n"), 0);
+          }
+          accidentalState.set(stateKey, note.accidental);
+          return staveNote;
+        });
+
+        const voice = new Voice({ num_beats: entries.length * 4, beat_value: 4 });
+        if (typeof voice.setMode === "function" && Voice.Mode) voice.setMode(Voice.Mode.SOFT);
+        if (typeof voice.setStrict === "function") voice.setStrict(false);
+        voice.addTickables(vexNotes);
+        new Formatter().joinVoices([voice]).format([voice], width - 145);
+        voice.draw(context, stave);
+
+        const svg = containerRef.current.querySelector("svg");
+        const ns = "http://www.w3.org/2000/svg";
+        if (svg) {
+          if (clef.tag) {
+            const tag = document.createElementNS(ns, "text");
+            tag.setAttribute("x", "58");
+            tag.setAttribute("y", "38");
+            tag.setAttribute("font-size", "13");
+            tag.setAttribute("font-weight", "700");
+            tag.setAttribute("fill", "#52525b");
+            tag.textContent = clef.tag;
+            svg.appendChild(tag);
+          }
+
+          entries.forEach((entry, index) => {
+            const status = entry.status;
+            if (status !== "correct" && status !== "wrong" && status !== "start") return;
+            const vexNote = vexNotes[index];
+            const x = typeof vexNote.getAbsoluteX === "function" ? vexNote.getAbsoluteX() : 88 + index * 70;
+            const ys = typeof vexNote.getYs === "function" ? vexNote.getYs() : [90];
+            const y = Array.isArray(ys) && ys.length ? ys[0] : 90;
+
+            if (status === "start") return;
+
+            const color = status === "correct" ? "#16a34a" : "#dc2626";
+            const mark = document.createElementNS(ns, "text");
+            mark.setAttribute("x", String(x - 7));
+            mark.setAttribute("y", String(y - 24));
+            mark.setAttribute("font-size", "19");
+            mark.setAttribute("font-weight", "800");
+            mark.setAttribute("fill", color);
+            mark.textContent = status === "correct" ? "✓" : "×";
+            svg.appendChild(mark);
+
+            const underline = document.createElementNS(ns, "line");
+            underline.setAttribute("x1", String(x - 15));
+            underline.setAttribute("x2", String(x + 15));
+            underline.setAttribute("y1", String(y + 21));
+            underline.setAttribute("y2", String(y + 21));
+            underline.setAttribute("stroke", color);
+            underline.setAttribute("stroke-width", "3");
+            underline.setAttribute("stroke-linecap", "round");
+            svg.appendChild(underline);
+          });
+        }
+      } catch (error) {
+        console.error("Error al renderizar la partitura:", error);
+        setRenderError("Hubo un problema al dibujar la partitura.");
+      }
+    }
+
+    renderStaff();
+    return () => {
+      disposed = true;
+    };
+  }, [attemptNotes, exercise, revealFull]);
+
+  return (
+    <div className="space-y-3">
+      <div className="w-full overflow-x-auto rounded-2xl border border-zinc-200 bg-white p-3">
+        <div ref={containerRef} />
+      </div>
+      {renderError ? <p className="text-sm text-red-600">{renderError}</p> : null}
+    </div>
+  );
+}
+
+
+function PianoKeyboard({ onPress, disabled = false }) {
+  const whiteKeys = PIANO_KEYS.filter((key) => key.type === "white");
+  const blackKeys = PIANO_KEYS.filter((key) => key.type === "black");
+  return (
+    <div className="mx-auto w-full max-w-2xl pt-8">
+      <div className="relative h-36 w-full select-none overflow-visible rounded-b-2xl border border-zinc-300 bg-zinc-200 p-2 shadow-sm">
+        <div className="flex h-full gap-1">
+          {whiteKeys.map((key) => (
+            <button
+              type="button"
+              key={key.pc}
+              disabled={disabled}
+              onClick={() => onPress(key.pc)}
+              className={`relative flex flex-1 items-end justify-center rounded-b-xl border border-zinc-300 bg-white pb-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+            >
+              {key.display}
+            </button>
+          ))}
+        </div>
+        {blackKeys.map((key) => (
+          <button
+            type="button"
+            key={key.pc}
+            disabled={disabled}
+            onClick={() => onPress(key.pc)}
+            className={`absolute top-2 z-10 flex h-20 w-[9.5%] items-start justify-center rounded-b-lg bg-zinc-950 px-1 pt-2 text-center text-[9px] font-semibold leading-tight text-white transition hover:bg-zinc-800 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+            style={{ left: key.left }}
+          >
+            <span className="absolute -top-7 left-1/2 w-20 -translate-x-1/2 rounded-full border border-zinc-200 bg-white px-2 py-1 text-[10px] font-semibold leading-none text-zinc-700 shadow-sm">
+              {key.display}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+function StatBox({ label, value }) {
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">{label}</p>
+      <p className="mt-1 text-xl font-bold text-zinc-900">{value}</p>
+    </div>
+  );
+}
+
+
+function BottomStat({ label, value }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <p className="truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{label}</p>
+      <p className="truncate text-base font-bold text-zinc-900">{value}</p>
+    </div>
+  );
+}
+
+export default function IntervalTrainerPage() {
+  const saved = useMemo(() => (typeof window !== "undefined" ? initialSettings() : null), []);
+  const savedStats = useMemo(() => (typeof window !== "undefined" ? initialStats() : null), []);
   const audioContextRef = useRef(null);
   const soundfontCacheRef = useRef(new Map());
   const activeFallbackNodesRef = useRef([]);
   const activePlayersRef = useRef([]);
   const playbackTimeoutRef = useRef(null);
 
-  const [noteCount, setNoteCount] = useState(8);
-  const [tempo, setTempo] = useState(DEFAULT_TEMPO);
-  const [volume, setVolume] = useState(DEFAULT_VOLUME);
-  const [instrument, setInstrument] = useState("human");
-  const [selectedIntervals, setSelectedIntervals] = useState(["P4", "P5", "P8"]);
-  const [melody, setMelody] = useState(() => buildMelody(8, ["P4", "P5", "P8"]));
-  const [revealed, setRevealed] = useState(false);
+  const [noteCount, setNoteCount] = useState(saved?.noteCount ?? DEFAULT_NOTE_COUNT);
+  const [tempo, setTempo] = useState(saved?.tempo ?? DEFAULT_TEMPO);
+  const [volume, setVolume] = useState(saved?.volume ?? DEFAULT_VOLUME);
+  const [instrument, setInstrument] = useState(saved?.instrument ?? DEFAULT_INSTRUMENT);
+  const [selectedIntervalKeys, setSelectedIntervalKeys] = useState(saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS);
+  const [selectedClefKeys, setSelectedClefKeys] = useState(saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS);
+  const [useTwelveToneSeries, setUseTwelveToneSeries] = useState(saved?.useTwelveToneSeries ?? false);
+  const [exercise, setExercise] = useState(() => {
+    const count = saved?.useTwelveToneSeries
+      ? clamp(saved.noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES)
+      : clamp(saved?.noteCount ?? DEFAULT_NOTE_COUNT, MIN_NOTES, MAX_NOTES);
+    return saved?.useTwelveToneSeries
+      ? buildTwelveToneSeries(count, saved.selectedIntervalKeys, saved.selectedClefKeys)
+      : buildMelody(count, saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS);
+  });
+  const [attemptNotes, setAttemptNotes] = useState(() => [{ note: exercise.sequence[0], status: "start" }]);
+  const [nextIndex, setNextIndex] = useState(1);
+  const [revealFull, setRevealFull] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [audioStatus, setAudioStatus] = useState("Los sonidos reales se cargan al presionar Escuchar.");
+  const [buttonFlash, setButtonFlash] = useState(false);
+  const [stats, setStats] = useState(savedStats ?? { totalSeconds: 0, exercises: 0, correct: 0, incorrect: 0 });
 
-  const selectedInstrument = useMemo(
-    () => INSTRUMENTS.find((item) => item.value === instrument) ?? INSTRUMENTS[0],
-    [instrument]
-  );
+  const selectedInstrument = useMemo(() => INSTRUMENTS.find((item) => item.value === instrument) ?? INSTRUMENTS.find((item) => item.value === DEFAULT_INSTRUMENT), [instrument]);
+  const hasSelectedIntervals = selectedIntervalKeys.length > 0;
+  const hasSelectedClefs = selectedClefKeys.length > 0;
+  const twelveToneUsableIntervals = useMemo(() => getTwelveToneIntervalKeys(selectedIntervalKeys), [selectedIntervalKeys]);
+  const canGenerate = hasSelectedIntervals && hasSelectedClefs && (!useTwelveToneSeries || twelveToneUsableIntervals.length > 0);
+  const safeNoteCount = useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES);
+  const expectedNote = exercise.sequence[nextIndex] ?? null;
+  const exerciseComplete = nextIndex >= exercise.sequence.length;
+  const score = scoreFromStats(stats);
+  const intervalLabels = useMemo(() => getIntervalLabels(exercise.sequence, exercise.intervalKeys), [exercise]);
+  const modelLabels = useMemo(() => detectModelLabels(exercise.sequence, exercise.intervalKeys), [exercise]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setStats((current) => ({ ...current, totalSeconds: current.totalSeconds + 1 }));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+        noteCount,
+        tempo,
+        volume,
+        instrument,
+        selectedIntervalKeys,
+        selectedClefKeys,
+        useTwelveToneSeries,
+      }));
+    } catch {}
+  }, [instrument, noteCount, selectedClefKeys, selectedIntervalKeys, tempo, useTwelveToneSeries, volume]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+    } catch {}
+  }, [stats]);
+
+  useEffect(() => {
+    if (useTwelveToneSeries) {
+      setNoteCount((current) => clamp(current, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES));
+    }
+  }, [useTwelveToneSeries]);
 
   const ensureAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) throw new Error("Web Audio API no disponible en este navegador");
       audioContextRef.current = new AudioContextClass();
     }
-    if (audioContextRef.current.state === "suspended") {
-      await audioContextRef.current.resume();
-    }
+    if (audioContextRef.current.state === "suspended") await audioContextRef.current.resume();
     return audioContextRef.current;
   }, []);
 
@@ -213,34 +979,25 @@ export default function IntervalTrainerSoundfontPreview() {
   const getSoundfontInstrument = useCallback(async (ctx, instrumentConfig) => {
     if (!instrumentConfig?.soundfont) return null;
     const cacheKey = instrumentConfig.soundfont;
-    if (soundfontCacheRef.current.has(cacheKey)) {
-      return soundfontCacheRef.current.get(cacheKey);
-    }
-
-    await loadScriptOnce(SOUNDFONT_SCRIPT_URL);
-    if (!window.Soundfont?.instrument) throw new Error("Soundfont-player no disponible");
-
-    setAudioStatus(`Cargando ${instrumentConfig.label}…`);
-    const sfInstrument = await window.Soundfont.instrument(ctx, instrumentConfig.soundfont, {
+    if (soundfontCacheRef.current.has(cacheKey)) return soundfontCacheRef.current.get(cacheKey);
+    const sfInstrument = await Soundfont.instrument(ctx, instrumentConfig.soundfont, {
       format: "mp3",
       soundfont: SOUNDFONT_LIBRARY,
       nameToUrl: (name, sf, format) => `${SOUNDFONT_BASE_URL}/${sf}/${name}-${format}.js`,
     });
     soundfontCacheRef.current.set(cacheKey, sfInstrument);
-    setAudioStatus(`${instrumentConfig.label}: muestras cargadas.`);
     return sfInstrument;
   }, []);
 
   const createFallbackVoice = useCallback((ctx, freq, fallbackType, startTime, duration, volumeLevel) => {
-    const volumeNorm = clamp(volumeLevel, 0, 100) / 100;
+    const volumeNorm = (clamp(volumeLevel, MIN_VOLUME, MAX_VOLUME) / 100) * INTERNAL_VOLUME_BOOST;
     const masterGain = ctx.createGain();
     const oscillators = [];
     const gains = [];
     const filters = [];
-
     let attack = 0.04;
     let release = Math.max(0.1, duration * 0.22);
-    let peak = 0.14 * volumeNorm;
+    let peak = Math.min(1.6, 0.14 * volumeNorm);
 
     const routeOscillator = ({ type, multiplier = 1, detune = 0, level = 0.5, targetNode = masterGain }) => {
       const osc = ctx.createOscillator();
@@ -259,7 +1016,7 @@ export default function IntervalTrainerSoundfontPreview() {
     if (fallbackType === "voice") {
       attack = 0.09;
       release = Math.max(0.15, duration * 0.24);
-      peak = 0.18 * volumeNorm;
+      peak = Math.min(1.6, 0.18 * volumeNorm);
       const formant = ctx.createBiquadFilter();
       formant.type = "bandpass";
       formant.frequency.value = 900;
@@ -276,14 +1033,14 @@ export default function IntervalTrainerSoundfontPreview() {
     } else if (fallbackType === "organ") {
       attack = 0.025;
       release = Math.max(0.1, duration * 0.18);
-      peak = 0.17 * volumeNorm;
+      peak = Math.min(1.6, 0.17 * volumeNorm);
       routeOscillator({ type: "sine", level: 0.72 });
       routeOscillator({ type: "sine", multiplier: 2, level: 0.18 });
       routeOscillator({ type: "triangle", multiplier: 0.5, level: 0.12 });
     } else if (fallbackType === "strings") {
       attack = 0.12;
       release = Math.max(0.15, duration * 0.26);
-      peak = 0.17 * volumeNorm;
+      peak = Math.min(1.6, 0.17 * volumeNorm);
       const lowPass = ctx.createBiquadFilter();
       lowPass.type = "lowpass";
       lowPass.frequency.value = 1900;
@@ -295,30 +1052,14 @@ export default function IntervalTrainerSoundfontPreview() {
     } else if (fallbackType === "mallet") {
       attack = 0.01;
       release = Math.max(0.16, duration * 0.5);
-      peak = 0.19 * volumeNorm;
-      const lowPass = ctx.createBiquadFilter();
-      lowPass.type = "lowpass";
-      lowPass.frequency.value = 4200;
-      lowPass.connect(masterGain);
-      filters.push(lowPass);
-      routeOscillator({ type: "sine", level: 0.75, targetNode: lowPass });
-      routeOscillator({ type: "triangle", multiplier: 2.01, level: 0.2, targetNode: lowPass });
-      routeOscillator({ type: "sine", multiplier: 3.02, level: 0.08, targetNode: lowPass });
-    } else if (fallbackType === "bass") {
-      attack = 0.018;
-      release = Math.max(0.14, duration * 0.4);
-      peak = 0.2 * volumeNorm;
-      const lowPass = ctx.createBiquadFilter();
-      lowPass.type = "lowpass";
-      lowPass.frequency.value = 1000;
-      lowPass.connect(masterGain);
-      filters.push(lowPass);
-      routeOscillator({ type: "triangle", level: 0.85, targetNode: lowPass });
-      routeOscillator({ type: "sine", multiplier: 2, level: 0.14, targetNode: lowPass });
+      peak = Math.min(1.6, 0.19 * volumeNorm);
+      routeOscillator({ type: "sine", level: 0.75 });
+      routeOscillator({ type: "triangle", multiplier: 2.01, level: 0.2 });
+      routeOscillator({ type: "sine", multiplier: 3.02, level: 0.08 });
     } else {
       attack = 0.012;
       release = Math.max(0.12, duration * 0.36);
-      peak = 0.2 * volumeNorm;
+      peak = Math.min(1.6, 0.2 * volumeNorm);
       const lowPass = ctx.createBiquadFilter();
       lowPass.type = "lowpass";
       lowPass.frequency.value = 2900;
@@ -331,7 +1072,7 @@ export default function IntervalTrainerSoundfontPreview() {
     const sustainEnd = Math.max(startTime + attack + 0.02, startTime + duration - release);
     masterGain.gain.setValueAtTime(0.0001, startTime);
     masterGain.gain.linearRampToValueAtTime(peak, startTime + attack);
-    if (fallbackType === "piano" || fallbackType === "mallet" || fallbackType === "bass") {
+    if (["piano", "mallet"].includes(fallbackType)) {
       masterGain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak * 0.25), sustainEnd);
     } else {
       masterGain.gain.setValueAtTime(peak, sustainEnd);
@@ -343,56 +1084,37 @@ export default function IntervalTrainerSoundfontPreview() {
       osc.start(startTime);
       osc.stop(startTime + duration + 0.06);
     });
-
     activeFallbackNodesRef.current.push({ oscillators, gains, filters, masterGain });
   }, []);
 
-  const generateNew = useCallback(() => {
-    stopPlayback();
-    setMelody(buildMelody(noteCount, selectedIntervals));
-    setRevealed(false);
-  }, [noteCount, selectedIntervals, stopPlayback]);
-
-  const toggleInterval = useCallback((key) => {
-    setSelectedIntervals((current) => {
-      const exists = current.includes(key);
-      const next = exists ? current.filter((item) => item !== key) : [...current, key];
-      if (!next.length || (next.length === 1 && next[0] === "TT")) return ["P4", "P5", "P8"];
-      return INTERVALS.map((item) => item.key).filter((item) => next.includes(item));
-    });
-  }, []);
-
-  const playSequence = useCallback(async () => {
-    if (!melody?.notes?.length || isPlaying) return;
+  const playExercise = useCallback(async (exerciseToPlay = exercise) => {
+    if (!exerciseToPlay?.sequence?.length) return;
     setIsPlaying(true);
     stopAllAudio();
-
     try {
       const ctx = await ensureAudioContext();
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
       const step = secondsPerBeat;
-      const noteDuration = selectedInstrument.sustain ? Math.max(0.24, step * 0.96) : Math.max(0.2, step * 0.88);
+      const noteDuration = selectedInstrument?.sustain ? Math.max(0.24, step * 0.99) : Math.max(0.2, step * 0.92);
       const baseTime = ctx.currentTime + 0.08;
-      const safeVolume = clamp(volume, 0, 100);
-
+      const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
       let sfInstrument = null;
       try {
         sfInstrument = await getSoundfontInstrument(ctx, selectedInstrument);
       } catch (error) {
-        console.warn("No se pudo cargar SoundFont. Usando síntesis de respaldo.", error);
-        setAudioStatus(`No se pudo cargar ${selectedInstrument.label}. Usando síntesis de respaldo.`);
+        console.warn("No se pudo cargar SoundFont. Usando síntesis interna.", error);
       }
 
-      melody.notes.forEach((midi, index) => {
+      exerciseToPlay.sequence.forEach((note, index) => {
         const start = baseTime + index * step;
         if (sfInstrument) {
-          const player = sfInstrument.play(noteNameForSoundFont(midi), start, {
+          const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, {
             duration: noteDuration,
-            gain: safeVolume / 100,
+            gain,
           });
           activePlayersRef.current.push(player);
         } else {
-          createFallbackVoice(ctx, midiToFreq(midi), selectedInstrument.fallback, start, noteDuration, safeVolume);
+          createFallbackVoice(ctx, midiToFreq(note.midi), selectedInstrument?.fallback ?? "piano", start, noteDuration, volume);
         }
       });
 
@@ -400,193 +1122,262 @@ export default function IntervalTrainerSoundfontPreview() {
       playbackTimeoutRef.current = window.setTimeout(() => {
         setIsPlaying(false);
         playbackTimeoutRef.current = null;
-      }, melody.notes.length * step * 1000 + 450);
+      }, exerciseToPlay.sequence.length * step * 1000 + 550);
     } catch (error) {
-      console.error(error);
-      setAudioStatus("Hubo un problema al reproducir el audio.");
+      console.error("Error al reproducir:", error);
       setIsPlaying(false);
     }
-  }, [createFallbackVoice, ensureAudioContext, getSoundfontInstrument, isPlaying, melody, selectedInstrument, stopAllAudio, tempo, volume]);
+  }, [createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, selectedInstrument, stopAllAudio, tempo, volume]);
 
-  useEffect(() => {
-    setMelody(buildMelody(noteCount, selectedIntervals));
-  }, [selectedIntervals]);
+  const startExercise = useCallback(() => {
+    if (!canGenerate) return;
+    const count = useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES);
+    const nextExercise = useTwelveToneSeries
+      ? buildTwelveToneSeries(count, selectedIntervalKeys, selectedClefKeys)
+      : buildMelody(count, selectedIntervalKeys, selectedClefKeys);
+    setExercise(nextExercise);
+    setAttemptNotes([{ note: nextExercise.sequence[0], status: "start" }]);
+    setNextIndex(1);
+    setRevealFull(false);
+    setStats((current) => ({ ...current, exercises: current.exercises + 1 }));
+    setButtonFlash(true);
+    window.setTimeout(() => setButtonFlash(false), 420);
+    playExercise(nextExercise);
+  }, [canGenerate, noteCount, playExercise, selectedClefKeys, selectedIntervalKeys, useTwelveToneSeries]);
+
+  const handleKeyboardPress = useCallback((pc) => {
+    if (!expectedNote || revealFull) return;
+    const correct = pitchClassOf(expectedNote) === pc;
+    if (correct) {
+      setAttemptNotes((current) => [...current, { note: expectedNote, status: "correct" }]);
+      setNextIndex((current) => current + 1);
+      setStats((current) => ({ ...current, correct: current.correct + 1 }));
+    } else {
+      setAttemptNotes((current) => [...current, { note: expectedNote, status: "wrong" }]);
+      setNextIndex((current) => current + 1);
+      setStats((current) => ({ ...current, incorrect: current.incorrect + 1 }));
+    }
+  }, [expectedNote, revealFull]);
+
+  const toggleInterval = useCallback((intervalKey) => {
+    setSelectedIntervalKeys((current) => {
+      const exists = current.includes(intervalKey);
+      return exists ? current.filter((key) => key !== intervalKey) : sanitizeIntervalSelection([...current, intervalKey]);
+    });
+  }, []);
+
+  const toggleClef = useCallback((clefKey) => {
+    setSelectedClefKeys((current) => {
+      const exists = current.includes(clefKey);
+      const next = exists ? current.filter((key) => key !== clefKey) : [...current, clefKey];
+      return next.length ? sanitizeClefSelection(next) : [];
+    });
+  }, []);
+
+  const selectAllIntervals = useCallback(() => setSelectedIntervalKeys(INTERVAL_DEFINITIONS.map((item) => item.key)), []);
+  const deselectAllIntervals = useCallback(() => setSelectedIntervalKeys([]), []);
+  const selectAllClefs = useCallback(() => setSelectedClefKeys(CLEFS.map((item) => item.key)), []);
+  const deselectAllClefs = useCallback(() => setSelectedClefKeys([]), []);
+
+  const resetEverything = useCallback(() => {
+    stopPlayback();
+    const freshExercise = buildMelody(DEFAULT_NOTE_COUNT, DEFAULT_INTERVAL_KEYS, DEFAULT_CLEF_KEYS);
+    setNoteCount(DEFAULT_NOTE_COUNT);
+    setTempo(DEFAULT_TEMPO);
+    setVolume(DEFAULT_VOLUME);
+    setInstrument(DEFAULT_INSTRUMENT);
+    setSelectedIntervalKeys(DEFAULT_INTERVAL_KEYS);
+    setSelectedClefKeys(DEFAULT_CLEF_KEYS);
+    setUseTwelveToneSeries(false);
+    setExercise(freshExercise);
+    setAttemptNotes([{ note: freshExercise.sequence[0], status: "start" }]);
+    setNextIndex(1);
+    setRevealFull(false);
+    setStats({ totalSeconds: 0, exercises: 0, correct: 0, incorrect: 0 });
+    try {
+      window.localStorage.removeItem(SETTINGS_KEY);
+      window.localStorage.removeItem(STATS_KEY);
+    } catch {}
+  }, [stopPlayback]);
 
   useEffect(() => {
     return () => {
-      if (playbackTimeoutRef.current) window.clearTimeout(playbackTimeoutRef.current);
-      stopAllAudio();
+      stopPlayback();
       try { audioContextRef.current?.close(); } catch {}
     };
-  }, [stopAllAudio]);
+  }, [stopPlayback]);
 
   return (
-    <div className="min-h-screen bg-[#FAFAF7] px-5 py-8 text-stone-950">
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500;1,600;1,700&family=DM+Sans:wght@400;500;600;700&display=swap');`}</style>
-      <div className="mx-auto max-w-6xl space-y-6" style={{ fontFamily: "DM Sans, sans-serif" }}>
-        <header className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-stone-500">Vista previa</p>
-            <h1 className="mt-2 text-4xl font-semibold italic tracking-tight md:text-6xl" style={{ fontFamily: "Cormorant Garamond, serif" }}>
-              Entrenador de intervalos melódicos
-            </h1>
-          </div>
-          <div className="rounded-2xl border border-stone-200 bg-white/70 px-4 py-3 text-sm text-stone-600 shadow-sm">
-            Sonidos reales vía SoundFont + respaldo sintético.
-          </div>
+    <div className="min-h-screen bg-zinc-100 p-6 pb-32 text-zinc-950 md:p-10 md:pb-32">
+      <div className="mx-auto max-w-5xl space-y-6">
+        <header className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">Entrenador de intervalos · Método Aural</h1>
         </header>
 
-        <section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm">
-            <div className="mb-5 flex items-center justify-between gap-3">
-              <h2 className="text-xl font-semibold">Configuración</h2>
-              <span className="rounded-full bg-stone-950 px-3 py-1 text-xs font-semibold text-white">{noteCount} notas</span>
-            </div>
-
+        <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="space-y-6">
               <div className="space-y-3">
-                <div className="flex justify-between text-sm font-medium">
-                  <span>Número de notas</span>
-                  <span>{noteCount}</span>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-sm font-medium text-zinc-700">Número de notas</span>
+                  <Badge>{safeNoteCount} notas</Badge>
                 </div>
                 <input
                   type="range"
-                  min={MIN_NOTES}
-                  max={MAX_NOTES}
+                  min={useTwelveToneSeries ? TWELVE_TONE_MIN_NOTES : MIN_NOTES}
+                  max={useTwelveToneSeries ? TWELVE_TONE_MAX_NOTES : MAX_NOTES}
                   step={1}
-                  value={noteCount}
+                  value={safeNoteCount}
                   onChange={(event) => setNoteCount(Number(event.target.value))}
-                  className="w-full accent-stone-950"
+                  className="w-full accent-sky-600"
                 />
-                <div className="flex justify-between text-xs text-stone-500"><span>2</span><span>24</span></div>
+                <div className="flex justify-between text-xs text-zinc-500">
+                  <span>{useTwelveToneSeries ? 4 : 2}</span>
+                  <span>{useTwelveToneSeries ? 12 : 24}</span>
+                </div>
               </div>
 
               <div className="space-y-3">
-                <div className="flex justify-between text-sm font-medium">
-                  <span>Intervalos</span>
-                  <span>{selectedIntervals.length} activos</span>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-sm font-medium text-zinc-700">Intervalos del ejercicio</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={selectAllIntervals} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500">Seleccionar todos</button>
+                    <button type="button" onClick={deselectAllIntervals} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500">Deseleccionar todos</button>
+                    <Badge>{selectedIntervalKeys.length} activos</Badge>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {INTERVALS.map((interval) => (
-                    <Chip key={interval.key} active={selectedIntervals.includes(interval.key)} onClick={() => toggleInterval(interval.key)}>
+                  {INTERVAL_DEFINITIONS.map((interval) => (
+                    <SelectionChip key={interval.key} active={selectedIntervalKeys.includes(interval.key)} onClick={() => toggleInterval(interval.key)} title={interval.name}>
                       {interval.short}
-                    </Chip>
+                    </SelectionChip>
                   ))}
                 </div>
-                <p className="text-xs leading-relaxed text-stone-500">
-                  En esta vista previa se generan saltos aleatorios con los intervalos seleccionados. El archivo completo conserva la lógica más avanzada de ortografía y modelos internos.
-                </p>
-              </div>
-
-              <div className="grid gap-5 md:grid-cols-2">
-                <div className="space-y-3">
-                  <div className="flex justify-between text-sm font-medium"><span>Tempo</span><span>{tempo} BPM</span></div>
-                  <input
-                    type="range"
-                    min={MIN_TEMPO}
-                    max={MAX_TEMPO}
-                    step={1}
-                    value={tempo}
-                    onChange={(event) => setTempo(Number(event.target.value))}
-                    className="w-full accent-stone-950"
-                  />
+                <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3">
+                  <SelectionChip active={useTwelveToneSeries} onClick={() => setUseTwelveToneSeries((current) => !current)} title="Serie dodecafónica">
+                    Serie dodecafónica
+                  </SelectionChip>
+                  <span className="text-xs text-zinc-500">Sin repetir clases de altura; disponible de 4 a 12 notas.</span>
                 </div>
-                <div className="space-y-3">
-                  <div className="flex justify-between text-sm font-medium"><span>Volumen</span><span>{volume}%</span></div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={volume}
-                    onChange={(event) => setVolume(Number(event.target.value))}
-                    className="w-full accent-stone-950"
-                  />
-                </div>
+                {!hasSelectedIntervals ? (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Selecciona al menos un intervalo para generar.</p>
+                ) : useTwelveToneSeries && twelveToneUsableIntervals.length === 0 ? (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">La 8J no puede funcionar sola en serie dodecafónica porque repite la misma clase de altura.</p>
+                ) : (
+                  <p className="text-xs text-zinc-500">El generador favorece modelos sonoros reconocibles como 4J+4J, 5J+5J, TT+4J, 6M+3M y otras combinaciones base.</p>
+                )}
               </div>
 
               <div className="space-y-3">
-                <div className="flex justify-between text-sm font-medium">
-                  <span>Fuente de sonido</span>
-                  <span>{selectedInstrument.label}</span>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-sm font-medium text-zinc-700">Claves</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={selectAllClefs} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500">Seleccionar todas</button>
+                    <button type="button" onClick={deselectAllClefs} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500">Deseleccionar todas</button>
+                    <Badge>{selectedClefKeys.length} activas</Badge>
+                  </div>
                 </div>
-                <select
-                  value={instrument}
-                  onChange={(event) => setInstrument(event.target.value)}
-                  className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm outline-none focus:border-stone-700"
-                >
-                  {INSTRUMENTS.map((item) => (
-                    <option key={item.value} value={item.value}>{item.label}</option>
+                <div className="flex flex-wrap gap-2">
+                  {CLEFS.map((clef) => (
+                    <ClefChip key={clef.key} clef={clef} active={selectedClefKeys.includes(clef.key)} onClick={() => toggleClef(clef.key)} />
                   ))}
-                </select>
-                <p className="rounded-2xl bg-stone-100 px-4 py-3 text-xs leading-relaxed text-stone-600">{audioStatus}</p>
+                </div>
+                {!hasSelectedClefs ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Selecciona al menos una clave para generar.</p> : null}
               </div>
 
-              <div className="flex flex-wrap gap-3 pt-2">
-                <IconButton onClick={generateNew}>Generar nueva sucesión</IconButton>
-                <IconButton variant="light" onClick={isPlaying ? stopPlayback : playSequence}>{isPlaying ? "Parar" : "Escuchar"}</IconButton>
-                <IconButton variant="light" onClick={() => setRevealed((prev) => !prev)}>{revealed ? "Ocultar respuesta" : "Mostrar respuesta"}</IconButton>
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Tempo</span><Badge>{tempo} BPM</Badge></div>
+                  <input type="range" min={MIN_TEMPO} max={MAX_TEMPO} step={1} value={tempo} onChange={(event) => setTempo(Number(event.target.value))} className="w-full accent-sky-600" />
+                  <div className="flex justify-between text-xs text-zinc-500"><span>30 BPM</span><span>200 BPM</span></div>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Volumen</span><Badge>{volume}%</Badge></div>
+                  <input type="range" min={MIN_VOLUME} max={MAX_VOLUME} step={1} value={volume} onChange={(event) => setVolume(Number(event.target.value))} className="w-full accent-sky-600" />
+                  <div className="flex justify-between text-xs text-zinc-500"><span>0%</span><span>100%</span></div>
+                </div>
               </div>
+
+              <div className="grid gap-6">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Instrumento</span><Badge>{selectedInstrument?.label}</Badge></div>
+                  <select value={instrument} onChange={(event) => setInstrument(event.target.value)} className="w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">
+                    {INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm">
-            <div className="mb-5 flex items-center justify-between gap-3">
-              <h2 className="text-xl font-semibold">Sucesión actual</h2>
-              <span className="rounded-full border border-stone-200 px-3 py-1 text-xs font-semibold text-stone-600">
-                Inicio: {midiToNoteName(melody.notes[0])}
-              </span>
-            </div>
+          <div className="space-y-6">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+              <div className="mb-4 flex flex-wrap gap-3">
+                <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
+                  <RefreshIcon className="h-4 w-4" /> Generar nueva sucesión
+                </ActionButton>
+                <ActionButton active={isPlaying} onClick={() => (isPlaying ? stopPlayback() : playExercise(exercise))}>
+                  {isPlaying ? <StopIcon className="h-4 w-4" /> : <VolumeIcon className="h-4 w-4" />}
+                  {isPlaying ? "Parar" : "Escuchar"}
+                </ActionButton>
+                <ActionButton active={revealFull} onClick={() => setRevealFull((current) => !current)}>
+                  {revealFull ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                  {revealFull ? "Ocultar respuesta" : "Mostrar respuesta completa"}
+                </ActionButton>
+              </div>
 
-            <div className="rounded-[1.5rem] border border-stone-200 bg-[#FAFAF7] p-5">
-              <div className="mb-3 flex h-28 items-end gap-2 overflow-hidden border-b border-stone-300 pb-4">
-                {melody.notes.map((midi, index) => {
-                  const height = 22 + (midi - 48) * 1.65;
-                  return (
-                    <div key={`${midi}-${index}`} className="flex flex-1 flex-col items-center justify-end gap-2">
-                      <div
-                        className="w-full max-w-10 rounded-t-xl bg-stone-950 transition-all"
-                        style={{ height: `${height}px`, opacity: 0.35 + index / Math.max(8, melody.notes.length) }}
-                        title={midiToNoteName(midi)}
-                      />
+              <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} />
+
+              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="mb-3 flex flex-wrap items-center gap-3">
+                  <p className="text-sm font-semibold text-zinc-800">
+                    {exerciseComplete ? "Ejercicio completo." : `Siguiente nota: ${nextIndex + 1} de ${exercise.sequence.length}`}
+                  </p>
+                </div>
+                <PianoKeyboard onPress={handleKeyboardPress} disabled={exerciseComplete || revealFull} />
+              </div>
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                {modelLabels.length > 0 ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <p className="text-sm font-medium text-zinc-500">Modelos reconocibles en la sucesión</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {modelLabels.map((label) => <Badge key={label}>{label}</Badge>)}
                     </div>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-stone-500">Representación visual aproximada de altura; en el archivo completo aparece la partitura con VexFlow.</p>
-            </div>
+                  </div>
+                ) : null}
 
-            {!revealed ? (
-              <div className="mt-5 rounded-2xl border border-dashed border-stone-300 p-6 text-sm text-stone-500">
-                Presiona “Mostrar respuesta” para ver las notas e intervalos.
-              </div>
-            ) : (
-              <div className="mt-5 space-y-4">
-                <div className="rounded-2xl border border-stone-200 p-5">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">Notas</p>
-                  <div className="flex flex-wrap gap-2">
-                    {melody.notes.map((midi, index) => (
-                      <span key={`${midi}-${index}`} className="rounded-xl bg-stone-950 px-3 py-1 text-sm font-semibold text-white">
-                        {midiToNoteName(midi)}
-                      </span>
-                    ))}
+                {revealFull ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <p className="text-sm font-medium text-zinc-500">Saltos entre notas consecutivas</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {intervalLabels.map((item, index) => <Badge key={`${item}-${index}`}>{item}</Badge>)}
+                    </div>
                   </div>
-                </div>
-                <div className="rounded-2xl border border-stone-200 p-5">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">Saltos</p>
-                  <div className="flex flex-wrap gap-2">
-                    {melody.intervalLabels.map((item, index) => (
-                      <span key={`${item}-${index}`} className="rounded-xl bg-stone-100 px-3 py-1 text-sm font-medium text-stone-700">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+                ) : null}
               </div>
-            )}
+            </div>
           </div>
         </section>
       </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-4 py-3 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur">
+        <div className="mx-auto grid max-w-5xl grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto]">
+          <BottomStat label="Tiempo" value={formatTime(stats.totalSeconds)} />
+          <BottomStat label="Ejercicios" value={stats.exercises} />
+          <BottomStat label="Aciertos" value={stats.correct} />
+          <BottomStat label="Errores" value={stats.incorrect} />
+          <BottomStat label="Puntuación" value={`${score}/100`} />
+          <button
+            type="button"
+            onClick={resetEverything}
+            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 sm:col-span-3 lg:col-span-1"
+          >
+            <ResetIcon className="h-4 w-4" /> Reiniciar
+          </button>
+        </div>
+      </div>
     </div>
+
   );
 }
