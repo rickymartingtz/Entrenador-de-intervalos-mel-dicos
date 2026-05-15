@@ -91,9 +91,9 @@ const MIN_TEMPO = 30;
 const MAX_TEMPO = 200;
 const DEFAULT_TEMPO = 72;
 const MIN_VOLUME = 0;
-const MAX_VOLUME = 100;
-const DEFAULT_VOLUME = 70;
-const DEFAULT_INSTRUMENT = "human";
+const MAX_VOLUME = 180;
+const DEFAULT_VOLUME = 100;
+const DEFAULT_INSTRUMENT = "choir";
 const SOUNDFONT_LIBRARY = "MusyngKite";
 const SOUNDFONT_BASE_URL = "https://gleitz.github.io/midi-js-soundfonts";
 const STAFF_BASE_WIDTH = 260;
@@ -229,17 +229,26 @@ const MODEL_PATTERNS = [
 ];
 
 const INSTRUMENTS = [
-  { value: "human", label: "Voz / coro", soundfont: "choir_aahs", fallback: "voice", sustain: true },
-  { value: "voiceOohs", label: "Voz oohs", soundfont: "voice_oohs", fallback: "voice", sustain: true },
-  { value: "organ", label: "Órgano", soundfont: "church_organ", fallback: "organ", sustain: true },
-  { value: "strings", label: "Cuerdas", soundfont: "string_ensemble_1", fallback: "strings", sustain: true },
+  { value: "choir", label: "Coro Aahs", soundfont: "choir_aahs", fallback: "voice", sustain: true },
+  { value: "voiceOohs", label: "Voz Oohs", soundfont: "voice_oohs", fallback: "voice", sustain: true },
+  { value: "synthVoice", label: "Voz sintética", soundfont: "synth_voice", fallback: "voice", sustain: true },
+  { value: "churchOrgan", label: "Órgano de iglesia", soundfont: "church_organ", fallback: "organ", sustain: true },
+  { value: "drawbarOrgan", label: "Órgano drawbar", soundfont: "drawbar_organ", fallback: "organ", sustain: true },
+  { value: "reedOrgan", label: "Órgano de lengüeta", soundfont: "reed_organ", fallback: "organ", sustain: true },
+  { value: "strings1", label: "Cuerdas I", soundfont: "string_ensemble_1", fallback: "strings", sustain: true },
+  { value: "strings2", label: "Cuerdas II", soundfont: "string_ensemble_2", fallback: "strings", sustain: true },
+  { value: "violin", label: "Violín", soundfont: "violin", fallback: "strings", sustain: true },
+  { value: "viola", label: "Viola", soundfont: "viola", fallback: "strings", sustain: true },
   { value: "cello", label: "Violonchelo", soundfont: "cello", fallback: "strings", sustain: true },
   { value: "piano", label: "Piano acústico", soundfont: "acoustic_grand_piano", fallback: "piano", sustain: false },
   { value: "brightPiano", label: "Piano brillante", soundfont: "bright_acoustic_piano", fallback: "piano", sustain: false },
+  { value: "electricPiano", label: "Piano eléctrico", soundfont: "electric_piano_1", fallback: "piano", sustain: false },
+  { value: "harpsichord", label: "Clave / harpsichord", soundfont: "harpsichord", fallback: "piano", sustain: false },
+  { value: "celesta", label: "Celesta", soundfont: "celesta", fallback: "mallet", sustain: false },
+  { value: "musicBox", label: "Caja de música", soundfont: "music_box", fallback: "mallet", sustain: false },
   { value: "marimba", label: "Marimba", soundfont: "marimba", fallback: "mallet", sustain: false },
   { value: "vibraphone", label: "Vibráfono", soundfont: "vibraphone", fallback: "mallet", sustain: false },
-  { value: "glockenspiel", label: "Glockenspiel", soundfont: "glockenspiel", fallback: "mallet", sustain: false },
-  { value: "bass", label: "Bajo acústico", soundfont: "acoustic_bass", fallback: "bass", sustain: false },
+  { value: "flute", label: "Flauta", soundfont: "flute", fallback: "voice", sustain: true },
 ];
 
 const SHORT_DIRECTION_OPTIONS = [
@@ -451,7 +460,7 @@ function getClefLabel(value) {
 
 function sanitizeIntervalSelection(intervalKeys) {
   const unique = [...new Set(intervalKeys)].filter((key) => INTERVAL_DEFINITIONS.some((interval) => interval.key === key));
-  if (unique.length === 0) return DEFAULT_INTERVAL_KEYS;
+  if (unique.length === 0) return [];
   if (unique.length === 1 && unique[0] === "TT") return DEFAULT_INTERVAL_KEYS;
   return INTERVAL_DEFINITIONS.map((item) => item.key).filter((key) => unique.includes(key));
 }
@@ -639,6 +648,20 @@ function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys, directio
   const safeCount = clamp(noteCount, MIN_NOTES, MAX_NOTES);
   const sanitizedIntervals = sanitizeIntervalSelection(selectedIntervalKeys);
   const sanitizedClefs = sanitizeClefSelection(selectedClefKeys);
+
+  if (sanitizedIntervals.length === 0) {
+    return {
+      id: `${Date.now()}-${Math.random()}`,
+      sequence: [],
+      intervals: [],
+      startNote: "",
+      palette: [],
+      clefKey: sanitizedClefs[0] ?? "treble",
+      intervalKeys: [],
+      directionMode: sanitizeDirectionMode(directionMode, safeCount),
+      modelLabels: [],
+    };
+  }
   const sanitizedDirectionMode = sanitizeDirectionMode(directionMode, safeCount);
   const directionPlan = getDirectionPlan(safeCount, sanitizedDirectionMode);
   const clefKey = randomItem(sanitizedClefs);
@@ -748,10 +771,10 @@ function runSelfTests() {
   console.assert(clamp(10, MIN_TEMPO, MAX_TEMPO) === 30, "El tempo mínimo debe respetarse");
   console.assert(clamp(240, MIN_TEMPO, MAX_TEMPO) === 200, "El tempo máximo debe respetarse");
   console.assert(clamp(-5, MIN_VOLUME, MAX_VOLUME) === 0, "El volumen mínimo debe respetarse");
-  console.assert(clamp(120, MIN_VOLUME, MAX_VOLUME) === 100, "El volumen máximo debe respetarse");
+  console.assert(clamp(220, MIN_VOLUME, MAX_VOLUME) === 180, "El volumen máximo debe respetarse");
   console.assert(getStaffWidth(24) > getStaffWidth(4), "El pentagrama debe crecer con más notas");
   console.assert(getInstrumentConfig("marimba")?.soundfont === "marimba", "Debe existir la fuente de sonido de marimba");
-  console.assert(getInstrumentConfig("human")?.soundfont === "choir_aahs", "La voz debe poder cargarse como SoundFont");
+  console.assert(getInstrumentConfig("choir")?.soundfont === "choir_aahs", "La voz debe poder cargarse como SoundFont");
 }
 
 if (typeof window !== "undefined") {
@@ -875,7 +898,7 @@ export default function IntervalTrainerPage() {
   const [exercise, setExercise] = useState(() => buildMelody(8, DEFAULT_INTERVAL_KEYS, DEFAULT_CLEF_KEYS, DEFAULT_DIRECTION_MODE));
   const [revealed, setRevealed] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [audioStatus, setAudioStatus] = useState("SoundFonts instalados por npm. Se cargarán las muestras reales al reproducir por primera vez.");
+  const [audioStatus, setAudioStatus] = useState("");
 
   const noteSummary = useMemo(() => `${noteCount} nota${noteCount === 1 ? "" : "s"}`, [noteCount]);
   const tempoSummary = useMemo(() => `${tempo} BPM`, [tempo]);
@@ -888,6 +911,7 @@ export default function IntervalTrainerPage() {
     if (noteCount === 3) return SHORT_DIRECTION_OPTIONS;
     return [];
   }, [noteCount]);
+  const hasSelectedIntervals = selectedIntervalKeys.length > 0;
 
   const stopAllAudio = useCallback(() => {
     sampleNodesRef.current.forEach((node) => {
@@ -1115,6 +1139,14 @@ export default function IntervalTrainerPage() {
     });
   }, []);
 
+  const selectAllIntervals = useCallback(() => {
+    setSelectedIntervalKeys(INTERVAL_DEFINITIONS.map((interval) => interval.key));
+  }, []);
+
+  const deselectAllIntervals = useCallback(() => {
+    setSelectedIntervalKeys([]);
+  }, []);
+
   const toggleClef = useCallback((clefKey) => {
     setSelectedClefKeys((current) => {
       const exists = current.includes(clefKey);
@@ -1129,7 +1161,7 @@ export default function IntervalTrainerPage() {
   }, [noteCount]);
 
   const playSequence = useCallback(async () => {
-    if (!exercise?.sequence?.length || isPlaying) return;
+    if (!exercise?.sequence?.length || !hasSelectedIntervals || isPlaying) return;
     setIsPlaying(true);
 
     try {
@@ -1158,7 +1190,7 @@ export default function IntervalTrainerPage() {
       }
 
       if (sampleInstrument) {
-        const sampleGain = Math.max(0.0001, Math.min(1, (safeVolume / 100) * 0.85));
+        const sampleGain = Math.max(0.0001, Math.min(2.5, (safeVolume / 100) * 1.35));
         exercise.sequence.forEach((note, index) => {
           const node = sampleInstrument.play(getSoundfontNoteName(note), baseTime + index * step, {
             duration: noteDuration,
@@ -1182,7 +1214,7 @@ export default function IntervalTrainerPage() {
       setAudioStatus("Hubo un problema al reproducir el audio.");
       setIsPlaying(false);
     }
-  }, [createInstrumentVoice, ensureAudioContext, exercise, instrument, isPlaying, loadSampleInstrument, stopAllAudio, tempo, volume]);
+  }, [createInstrumentVoice, ensureAudioContext, exercise, hasSelectedIntervals, instrument, isPlaying, loadSampleInstrument, stopAllAudio, tempo, volume]);
 
   const handlePlayButton = useCallback(() => {
     if (isPlaying) {
@@ -1212,23 +1244,15 @@ export default function IntervalTrainerPage() {
     <div className="min-h-screen bg-zinc-100 p-6 md:p-10">
       <div className="mx-auto max-w-5xl space-y-6">
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Entrenador melódico de intervalos</h1>
-          <p className="text-sm text-zinc-600">
-            Genera sucesiones de 2 a 24 notas usando los intervalos que selecciones, con ortografía coherente y una fuerte tendencia a los modelos sonoros base.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">Entrenador de intervalos melódicos</h1>
         </div>
 
         <Card className="rounded-2xl shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-xl">
-              <MusicIcon className="h-5 w-5" /> Configuración
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-6 pt-6">
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-4">
                 <span className="text-sm font-medium text-zinc-700">Número de notas</span>
-                <Badge className="rounded-xl px-3 py-1">{noteSummary}</Badge>
+                <Badge variant="secondary" className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-zinc-700">{noteSummary}</Badge>
               </div>
               <input
                 type="range"
@@ -1249,7 +1273,7 @@ export default function IntervalTrainerPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-sm font-medium text-zinc-700">Dirección para ejercicios cortos</span>
-                  <Badge className="rounded-xl px-3 py-1">{SHORT_DIRECTION_OPTIONS.find((option) => option.key === directionMode)?.label ?? "Libre"}</Badge>
+                  <Badge variant="secondary" className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-zinc-700">{SHORT_DIRECTION_OPTIONS.find((option) => option.key === directionMode)?.label ?? "Libre"}</Badge>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {visibleDirectionOptions.map((option) => (
@@ -1269,9 +1293,25 @@ export default function IntervalTrainerPage() {
             )}
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="text-sm font-medium text-zinc-700">Intervalos del ejercicio</span>
-                <Badge className="rounded-xl px-3 py-1">{selectedIntervalKeys.length} activos</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={selectAllIntervals}
+                    className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500"
+                  >
+                    Seleccionar todos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deselectAllIntervals}
+                    className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500"
+                  >
+                    Deseleccionar todos
+                  </button>
+                  <Badge variant="secondary" className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-zinc-700">{selectedIntervalKeys.length} activos</Badge>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 {INTERVAL_DEFINITIONS.map((interval) => (
@@ -1284,15 +1324,21 @@ export default function IntervalTrainerPage() {
                   </SelectionChip>
                 ))}
               </div>
-              <p className="text-xs text-zinc-500">
-                El generador no usa solo intervalos aislados: también favorece plantillas como 4J+4J, 5J+5J, 4J+2M, 3M+3M, TT+4J, 6M+3M, 7m+2m y otras combinaciones base.
-              </p>
+              {!hasSelectedIntervals ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Selecciona al menos un intervalo para generar y escuchar una sucesión.
+                </p>
+              ) : (
+                <p className="text-xs text-zinc-500">
+                  El generador no usa solo intervalos aislados: también favorece plantillas como 4J+4J, 5J+5J, 4J+2M, 3M+3M, TT+4J, 6M+3M, 7m+2m y otras combinaciones base.
+                </p>
+              )}
             </div>
 
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-4">
                 <span className="text-sm font-medium text-zinc-700">Claves permitidas</span>
-                <Badge className="rounded-xl px-3 py-1">{selectedClefKeys.length} activas</Badge>
+                <Badge variant="secondary" className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-zinc-700">{selectedClefKeys.length} activas</Badge>
               </div>
               <div className="flex flex-wrap gap-2">
                 {CLEFS.map((clef) => (
@@ -1314,7 +1360,7 @@ export default function IntervalTrainerPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-sm font-medium text-zinc-700">Tempo</span>
-                  <Badge className="rounded-xl px-3 py-1">{tempoSummary}</Badge>
+                  <Badge variant="secondary" className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-zinc-700">{tempoSummary}</Badge>
                 </div>
                 <input
                   type="range"
@@ -1334,7 +1380,7 @@ export default function IntervalTrainerPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-sm font-medium text-zinc-700">Volumen</span>
-                  <Badge className="rounded-xl px-3 py-1">{volumeSummary}</Badge>
+                  <Badge variant="secondary" className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-zinc-700">{volumeSummary}</Badge>
                 </div>
                 <input
                   type="range"
@@ -1347,7 +1393,7 @@ export default function IntervalTrainerPage() {
                 />
                 <div className="flex justify-between text-xs text-zinc-500">
                   <span>0%</span>
-                  <span>100%</span>
+                  <span>180%</span>
                 </div>
               </div>
             </div>
@@ -1356,7 +1402,7 @@ export default function IntervalTrainerPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-sm font-medium text-zinc-700">Instrumento</span>
-                  <Badge className="rounded-xl px-3 py-1">{instrumentSummary}</Badge>
+                  <Badge variant="secondary" className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-zinc-700">{instrumentSummary}</Badge>
                 </div>
                 <select
                   value={instrument}
@@ -1369,15 +1415,12 @@ export default function IntervalTrainerPage() {
                     </option>
                   ))}
                 </select>
-                <p className="text-xs text-zinc-500">
-                  {audioStatus}
-                </p>
               </div>
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-sm font-medium text-zinc-700">Clave actual</span>
-                  <Badge className="rounded-xl px-3 py-1">{activeClefLabel}</Badge>
+                  <Badge variant="secondary" className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-zinc-700">{activeClefLabel}</Badge>
                 </div>
                 <div className="rounded-2xl border bg-white px-4 py-3 text-sm text-zinc-700">
                   Esta sucesión está escrita en <span className="font-semibold">{activeClefLabel}</span>.
@@ -1387,7 +1430,7 @@ export default function IntervalTrainerPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-sm font-medium text-zinc-700">Nota inicial</span>
-                  <Badge className="rounded-xl px-3 py-1">{startNoteSummary}</Badge>
+                  <Badge variant="secondary" className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-zinc-700">{startNoteSummary}</Badge>
                 </div>
                 <div className="rounded-2xl border bg-white px-4 py-3 text-sm text-zinc-700">
                   La sucesión actual comienza en <span className="font-semibold">{startNoteSummary}</span>.
@@ -1396,10 +1439,10 @@ export default function IntervalTrainerPage() {
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Button onClick={() => generateExercise(noteCount, directionMode)} className="rounded-2xl">
+              <Button onClick={() => generateExercise(noteCount, directionMode)} disabled={!hasSelectedIntervals} className="rounded-2xl">
                 <RefreshIcon className="mr-2 h-4 w-4" /> Generar nueva sucesión
               </Button>
-              <Button onClick={handlePlayButton} variant="outline" className="rounded-2xl">
+              <Button onClick={handlePlayButton} disabled={!hasSelectedIntervals} variant="outline" className="rounded-2xl">
                 {isPlaying ? <StopIcon className="mr-2 h-4 w-4" /> : <VolumeIcon className="mr-2 h-4 w-4" />}
                 {isPlaying ? "Parar" : "Escuchar"}
               </Button>
