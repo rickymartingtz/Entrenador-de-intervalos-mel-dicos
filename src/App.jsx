@@ -1,6 +1,85 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Soundfont from "soundfont-player";
 
+
+function IconBase({ children, className = "h-4 w-4", viewBox = "0 0 24 24" }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox={viewBox}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+function EyeIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+      <circle cx="12" cy="12" r="3" />
+    </IconBase>
+  );
+}
+
+function EyeOffIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M3 3l18 18" />
+      <path d="M10.6 10.7a3 3 0 0 0 4.2 4.2" />
+      <path d="M9.9 5.1A12.5 12.5 0 0 1 12 5c6.5 0 10 7 10 7a18.7 18.7 0 0 1-3.2 4.2" />
+      <path d="M6.2 6.3C3.7 8 2 12 2 12s3.5 7 10 7a10.8 10.8 0 0 0 4.3-.8" />
+    </IconBase>
+  );
+}
+
+function RefreshIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M21 2v6h-6" />
+      <path d="M3 12a9 9 0 0 1 15.5-6.4L21 8" />
+      <path d="M3 22v-6h6" />
+      <path d="M21 12a9 9 0 0 1-15.5 6.4L3 16" />
+    </IconBase>
+  );
+}
+
+function VolumeIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+      <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+    </IconBase>
+  );
+}
+
+function StopIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <rect x="6" y="6" width="12" height="12" rx="1.5" />
+    </IconBase>
+  );
+}
+
+function ResetIcon({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M4 4v6h6" />
+      <path d="M20 20v-6h-6" />
+      <path d="M20 9A8 8 0 0 0 6.3 5.7L4 8" />
+      <path d="M4 15a8 8 0 0 0 13.7 3.3L20 16" />
+    </IconBase>
+  );
+}
+
 const LETTERS = ["C", "D", "E", "F", "G", "A", "B"];
 const NATURAL_OFFSETS = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 const ACCIDENTAL_ASCII = { [-1]: "b", 0: "", 1: "#" };
@@ -52,6 +131,48 @@ const INTERVAL_DEFINITIONS = [
   { key: "M7", short: "7M", name: "Séptima mayor", semitones: 11, diatonicSteps: 6 },
   { key: "P8", short: "8J", name: "Octava justa", semitones: 12, diatonicSteps: 7 },
 ];
+
+const MODEL_PATTERNS = [
+  { id: "l1-4j4j", label: "4J + 4J", steps: [{ intervalKey: "P4" }, { intervalKey: "P4" }] },
+  { id: "l1-5j5j", label: "5J + 5J", steps: [{ intervalKey: "P5" }, { intervalKey: "P5" }] },
+  { id: "l1-5up4down", label: "5J↗ + 4J↘", steps: [{ intervalKey: "P5", direction: 1 }, { intervalKey: "P4", direction: -1 }] },
+  { id: "l1-5down4up", label: "5J↘ + 4J↗", steps: [{ intervalKey: "P5", direction: -1 }, { intervalKey: "P4", direction: 1 }] },
+  { id: "l1-4up5down", label: "4J↗ + 5J↘", steps: [{ intervalKey: "P4", direction: 1 }, { intervalKey: "P5", direction: -1 }] },
+  { id: "l1-4down5up", label: "4J↘ + 5J↗", steps: [{ intervalKey: "P4", direction: -1 }, { intervalKey: "P5", direction: 1 }] },
+  { id: "l1-4j4j4j", label: "4J + 4J + 4J", steps: [{ intervalKey: "P4" }, { intervalKey: "P4" }, { intervalKey: "P4" }] },
+  { id: "l1-5j5j5j", label: "5J + 5J + 5J", steps: [{ intervalKey: "P5" }, { intervalKey: "P5" }, { intervalKey: "P5" }] },
+  { id: "l2-2M2M-up", label: "2M↗ + 2M↗", steps: [{ intervalKey: "M2", direction: 1 }, { intervalKey: "M2", direction: 1 }] },
+  { id: "l2-2m2m-up", label: "2m↗ + 2m↗", steps: [{ intervalKey: "m2", direction: 1 }, { intervalKey: "m2", direction: 1 }] },
+  { id: "l2-2M2M-down", label: "2M↘ + 2M↘", steps: [{ intervalKey: "M2", direction: -1 }, { intervalKey: "M2", direction: -1 }] },
+  { id: "l2-2m2m-down", label: "2m↘ + 2m↘", steps: [{ intervalKey: "m2", direction: -1 }, { intervalKey: "m2", direction: -1 }] },
+  { id: "l2-chromatic", label: "Escala cromática", steps: [{ intervalKey: "m2" }, { intervalKey: "m2" }, { intervalKey: "m2" }, { intervalKey: "m2" }] },
+  { id: "l2-whole-tone", label: "Escala de tonos enteros", steps: [{ intervalKey: "M2" }, { intervalKey: "M2" }, { intervalKey: "M2" }, { intervalKey: "M2" }] },
+  { id: "l2-4j-2M", label: "4J + 2M", steps: [{ intervalKey: "P4" }, { intervalKey: "M2" }] },
+  { id: "l2-4j-2m", label: "4J + 2m", steps: [{ intervalKey: "P4" }, { intervalKey: "m2" }] },
+  { id: "l2-5j-2M", label: "5J + 2M", steps: [{ intervalKey: "P5" }, { intervalKey: "M2" }] },
+  { id: "l2-5j-2m", label: "5J + 2m", steps: [{ intervalKey: "P5" }, { intervalKey: "m2" }] },
+  { id: "l3-3M3M", label: "3M + 3M", steps: [{ intervalKey: "M3" }, { intervalKey: "M3" }] },
+  { id: "l3-3m3m", label: "3m + 3m", steps: [{ intervalKey: "m3" }, { intervalKey: "m3" }] },
+  { id: "l3-aum4j", label: "aum. + 4J", steps: [{ intervalKey: "M3" }, { intervalKey: "M3" }, { intervalKey: "P4" }] },
+  { id: "l3-dis5j", label: "dis. + 5J", steps: [{ intervalKey: "m3" }, { intervalKey: "m3" }, { intervalKey: "P5" }] },
+  { id: "l4-tt4j", label: "TT + 4J", steps: [{ intervalKey: "TT" }, { intervalKey: "P4" }] },
+  { id: "l4-tt5j", label: "TT + 5J", steps: [{ intervalKey: "TT" }, { intervalKey: "P5" }] },
+  { id: "l4-tt2mtt", label: "TT + 2m + TT", steps: [{ intervalKey: "TT" }, { intervalKey: "m2" }, { intervalKey: "TT" }] },
+  { id: "l4-tt2Mtt", label: "TT + 2M + TT", steps: [{ intervalKey: "TT" }, { intervalKey: "M2" }, { intervalKey: "TT" }] },
+  { id: "l4-ttup5down", label: "TT↗ + 5J↘", steps: [{ intervalKey: "TT", direction: 1 }, { intervalKey: "P5", direction: -1 }] },
+  { id: "l4-ttdown4up", label: "TT↘ + 4J↗", steps: [{ intervalKey: "TT", direction: -1 }, { intervalKey: "P4", direction: 1 }] },
+  { id: "l5-6m6m", label: "6m + 6m", steps: [{ intervalKey: "m6" }, { intervalKey: "m6" }] },
+  { id: "l5-6M6M", label: "6M + 6M", steps: [{ intervalKey: "M6" }, { intervalKey: "M6" }] },
+  { id: "l5-6m3m", label: "6m + 3m", steps: [{ intervalKey: "m6" }, { intervalKey: "m3" }] },
+  { id: "l5-6M3M", label: "6M + 3M", steps: [{ intervalKey: "M6" }, { intervalKey: "M3" }] },
+  { id: "l6-7m", label: "7m", steps: [{ intervalKey: "m7" }] },
+  { id: "l6-7M", label: "7M", steps: [{ intervalKey: "M7" }] },
+  { id: "l6-7m2m", label: "7m + 2m", steps: [{ intervalKey: "m7" }, { intervalKey: "m2" }] },
+  { id: "l6-7M2M", label: "7M + 2M", steps: [{ intervalKey: "M7" }, { intervalKey: "M2" }] },
+  { id: "l6-7m4j", label: "7m + 4J", steps: [{ intervalKey: "m7" }, { intervalKey: "P4" }] },
+  { id: "l6-7M4j", label: "7M + 4J", steps: [{ intervalKey: "M7" }, { intervalKey: "P4" }] },
+];
+
 
 const INSTRUMENTS = [
   { value: "choir", label: "Coro Aahs", soundfont: "choir_aahs", fallback: "voice", sustain: true },
@@ -238,6 +359,54 @@ function getCandidates(currentNote, selectedIntervalKeys, clefKey, usedPitchClas
   return candidates;
 }
 
+
+
+function getIntervalBySemitones(semitones, allowedIntervalKeys = []) {
+  const allowed = new Set(allowedIntervalKeys.length ? allowedIntervalKeys : INTERVAL_DEFINITIONS.map((item) => item.key));
+  return INTERVAL_DEFINITIONS.find((interval) => allowed.has(interval.key) && interval.semitones === semitones);
+}
+
+function getTransitionData(sequence, allowedIntervalKeys = []) {
+  if (!Array.isArray(sequence) || sequence.length < 2) return [];
+  return sequence.slice(1).map((note, index) => {
+    const previous = sequence[index];
+    const diff = Math.abs(note.midi - previous.midi);
+    const interval = getIntervalBySemitones(diff, allowedIntervalKeys);
+    const direction = note.midi >= previous.midi ? 1 : -1;
+    return {
+      intervalKey: interval?.key ?? `${diff}`,
+      short: interval?.short ?? `${diff}`,
+      direction,
+    };
+  });
+}
+
+function getIntervalLabels(sequence, allowedIntervalKeys = []) {
+  return getTransitionData(sequence, allowedIntervalKeys).map((transition) => `${transition.short} ${transition.direction > 0 ? "↑" : "↓"}`);
+}
+
+function transitionMatchesModelStep(transition, modelStep) {
+  if (!transition || !modelStep) return false;
+  if (transition.intervalKey !== modelStep.intervalKey) return false;
+  if (typeof modelStep.direction === "number" && transition.direction !== modelStep.direction) return false;
+  return true;
+}
+
+function detectModelLabels(sequence, allowedIntervalKeys = []) {
+  const transitions = getTransitionData(sequence, allowedIntervalKeys);
+  const labels = [];
+  MODEL_PATTERNS.forEach((pattern) => {
+    if (pattern.steps.length > transitions.length) return;
+    for (let start = 0; start <= transitions.length - pattern.steps.length; start += 1) {
+      const slice = transitions.slice(start, start + pattern.steps.length);
+      if (slice.every((transition, index) => transitionMatchesModelStep(transition, pattern.steps[index]))) {
+        labels.push(pattern.label);
+        break;
+      }
+    }
+  });
+  return [...new Set(labels)].slice(0, 10);
+}
 function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys) {
   const safeCount = clamp(noteCount, MIN_NOTES, MAX_NOTES);
   const intervals = sanitizeIntervalSelection(selectedIntervalKeys);
@@ -541,6 +710,16 @@ function StatBox({ label, value }) {
   );
 }
 
+
+function BottomStat({ label, value }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <p className="truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{label}</p>
+      <p className="truncate text-base font-bold text-zinc-900">{value}</p>
+    </div>
+  );
+}
+
 export default function IntervalTrainerPage() {
   const saved = useMemo(() => (typeof window !== "undefined" ? initialSettings() : null), []);
   const savedStats = useMemo(() => (typeof window !== "undefined" ? initialStats() : null), []);
@@ -581,6 +760,8 @@ export default function IntervalTrainerPage() {
   const expectedNote = exercise.sequence[nextIndex] ?? null;
   const exerciseComplete = nextIndex >= exercise.sequence.length;
   const score = scoreFromStats(stats);
+  const intervalLabels = useMemo(() => getIntervalLabels(exercise.sequence, exercise.intervalKeys), [exercise]);
+  const modelLabels = useMemo(() => detectModelLabels(exercise.sequence, exercise.intervalKeys), [exercise]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -883,27 +1064,14 @@ export default function IntervalTrainerPage() {
   }, [stopPlayback]);
 
   return (
-    <div className="min-h-screen bg-[#FAFAF7] p-5 text-zinc-950 md:p-8">
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500;1,600;1,700&family=DM+Sans:wght@400;500;600;700;800&display=swap');`}</style>
-      <div className="mx-auto max-w-7xl space-y-6" style={{ fontFamily: "DM Sans, sans-serif" }}>
-        <header className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-zinc-500">Método Aural</p>
-            <h1 className="mt-2 text-4xl font-semibold italic tracking-tight md:text-6xl" style={{ fontFamily: "Cormorant Garamond, serif" }}>
-              Entrenador de intervalos melódicos
-            </h1>
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            <StatBox label="Tiempo" value={formatTime(stats.totalSeconds)} />
-            <StatBox label="Ejercicios" value={stats.exercises} />
-            <StatBox label="Aciertos" value={stats.correct} />
-            <StatBox label="Errores" value={stats.incorrect} />
-            <StatBox label="Puntuación" value={`${score}/100`} />
-          </div>
+    <div className="min-h-screen bg-zinc-100 p-6 pb-32 text-zinc-950 md:p-10 md:pb-32">
+      <div className="mx-auto max-w-5xl space-y-6">
+        <header className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">Entrenador de intervalos melódicos</h1>
         </header>
 
         <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <div className="rounded-[2rem] border border-zinc-200 bg-white p-6 shadow-sm">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="space-y-6">
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
@@ -927,7 +1095,7 @@ export default function IntervalTrainerPage() {
 
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-sm font-medium text-zinc-700">Intervalos</span>
+                  <span className="text-sm font-medium text-zinc-700">Intervalos del ejercicio</span>
                   <div className="flex flex-wrap items-center gap-2">
                     <button type="button" onClick={selectAllIntervals} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500">Seleccionar todos</button>
                     <button type="button" onClick={deselectAllIntervals} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500">Deseleccionar todos</button>
@@ -951,7 +1119,9 @@ export default function IntervalTrainerPage() {
                   <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Selecciona al menos un intervalo para generar.</p>
                 ) : useTwelveToneSeries && twelveToneUsableIntervals.length === 0 ? (
                   <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">La 8J no puede funcionar sola en serie dodecafónica porque repite la misma clase de altura.</p>
-                ) : null}
+                ) : (
+                  <p className="text-xs text-zinc-500">El generador favorece modelos sonoros reconocibles como 4J+4J, 5J+5J, TT+4J, 6M+3M y otras combinaciones base.</p>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -993,23 +1163,30 @@ export default function IntervalTrainerPage() {
                 </div>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Clave actual</span><Badge>{getClefConfig(exercise.clefKey).label}</Badge></div>
-                  <div className="flex h-[50px] items-center rounded-2xl border border-zinc-200 bg-zinc-50 px-4 text-sm text-zinc-700">
+                  <div className="flex h-[50px] items-center rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-700">
                     <span className="mr-3 font-serif text-3xl">{getClefConfig(exercise.clefKey).symbol}</span>{getClefConfig(exercise.clefKey).label}
                   </div>
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-3 border-t border-zinc-100 pt-5">
-                <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>Generar nueva sucesión</ActionButton>
-                <ActionButton active={isPlaying} onClick={() => (isPlaying ? stopPlayback() : playExercise(exercise))}>Escuchar</ActionButton>
-                <ActionButton active={revealFull} onClick={() => setRevealFull((current) => !current)}>Mostrar respuesta completa</ActionButton>
-                <ActionButton active={false} onClick={resetEverything}>Reiniciar todo</ActionButton>
+                <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
+                  <RefreshIcon className="mr-2 h-4 w-4" /> Generar nueva sucesión
+                </ActionButton>
+                <ActionButton active={isPlaying} onClick={() => (isPlaying ? stopPlayback() : playExercise(exercise))}>
+                  {isPlaying ? <StopIcon className="mr-2 h-4 w-4" /> : <VolumeIcon className="mr-2 h-4 w-4" />}
+                  {isPlaying ? "Parar" : "Escuchar"}
+                </ActionButton>
+                <ActionButton active={revealFull} onClick={() => setRevealFull((current) => !current)}>
+                  {revealFull ? <EyeOffIcon className="mr-2 h-4 w-4" /> : <EyeIcon className="mr-2 h-4 w-4" />}
+                  {revealFull ? "Ocultar respuesta" : "Mostrar respuesta completa"}
+                </ActionButton>
               </div>
             </div>
           </div>
 
           <div className="space-y-6">
-            <div className="rounded-[2rem] border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold text-zinc-900">Ejercicio actual</h2>
@@ -1019,6 +1196,24 @@ export default function IntervalTrainerPage() {
               </div>
 
               <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} />
+
+              {modelLabels.length > 0 ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <p className="text-sm font-medium text-zinc-500">Modelos reconocibles en la sucesión</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {modelLabels.map((label) => <Badge key={label}>{label}</Badge>)}
+                  </div>
+                </div>
+              ) : null}
+
+              {revealFull ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <p className="text-sm font-medium text-zinc-500">Saltos entre notas consecutivas</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {intervalLabels.map((item, index) => <Badge key={`${item}-${index}`}>{item}</Badge>)}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -1030,26 +1225,27 @@ export default function IntervalTrainerPage() {
                 <PianoKeyboard onPress={handleKeyboardPress} disabled={exerciseComplete || revealFull} expectedPc={expectedNote ? pitchClassOf(expectedNote) : null} />
               </div>
             </div>
-
-            <div className="rounded-[2rem] border border-zinc-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-zinc-900">Resumen</h2>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <StatBox label="Inicio" value={exercise.startNote} />
-                <StatBox label="Notas vistas" value={`${Math.min(nextIndex, exercise.sequence.length)}/${exercise.sequence.length}`} />
-                <StatBox label="Modo" value={exercise.mode === "twelveTone" ? "Dodecafónico" : "Intervalos"} />
-                <StatBox label="Puntaje" value={`${score}/100`} />
-              </div>
-              {revealFull ? (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {exercise.sequence.map((note, index) => (
-                    <span key={`${note.id}-${index}`} className="rounded-xl bg-zinc-950 px-3 py-1 text-sm font-semibold text-white">{note.label}</span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
           </div>
         </section>
       </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-4 py-3 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur">
+        <div className="mx-auto grid max-w-5xl grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto]">
+          <BottomStat label="Tiempo" value={formatTime(stats.totalSeconds)} />
+          <BottomStat label="Ejercicios" value={stats.exercises} />
+          <BottomStat label="Aciertos" value={stats.correct} />
+          <BottomStat label="Errores" value={stats.incorrect} />
+          <BottomStat label="Puntuación" value={`${score}/100`} />
+          <button
+            type="button"
+            onClick={resetEverything}
+            className="inline-flex items-center justify-center rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 sm:col-span-3 lg:col-span-1"
+          >
+            <ResetIcon className="mr-2 h-4 w-4" /> Reiniciar
+          </button>
+        </div>
+      </div>
     </div>
+
   );
 }
