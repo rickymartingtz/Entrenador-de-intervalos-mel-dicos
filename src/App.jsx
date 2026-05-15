@@ -89,11 +89,14 @@ const MIN_NOTES = 2;
 const MAX_NOTES = 24;
 const MIN_TEMPO = 30;
 const MAX_TEMPO = 200;
-const DEFAULT_TEMPO = 72;
+const DEFAULT_NOTE_COUNT = 4;
+const DEFAULT_TEMPO = 50;
 const MIN_VOLUME = 0;
-const MAX_VOLUME = 180;
-const DEFAULT_VOLUME = 100;
-const DEFAULT_INSTRUMENT = "choir";
+const MAX_VOLUME = 100;
+const DEFAULT_VOLUME = 50;
+const INTERNAL_VOLUME_BOOST = 6.0;
+const SOUNDFONT_GAIN_BOOST = 9.5;
+const DEFAULT_INSTRUMENT = "piano";
 const SOUNDFONT_LIBRARY = "MusyngKite";
 const SOUNDFONT_BASE_URL = "https://gleitz.github.io/midi-js-soundfonts";
 const STAFF_BASE_WIDTH = 260;
@@ -104,8 +107,14 @@ const DEFAULT_DIRECTION_MODE = "random";
 
 const CLEFS = [
   { key: "treble", label: "Clave de sol", vex: "treble", minMidi: 60, maxMidi: 88, centerMinMidi: 65, centerMaxMidi: 79 },
+  { key: "treble8va", label: "Clave de sol 8va alta", vex: "treble", annotation: "8va", displayOctaveShift: -1, minMidi: 72, maxMidi: 100, centerMinMidi: 77, centerMaxMidi: 91 },
+  { key: "treble15ma", label: "Clave de sol 15ma alta", vex: "treble", annotation: "15ma", displayOctaveShift: -2, minMidi: 84, maxMidi: 108, centerMinMidi: 84, centerMaxMidi: 100 },
+  { key: "soprano", label: "Clave de do en 1ra", vex: "soprano", minMidi: 57, maxMidi: 81, centerMinMidi: 62, centerMaxMidi: 74 },
+  { key: "mezzo", label: "Clave de do en 2da", vex: "mezzo-soprano", minMidi: 55, maxMidi: 79, centerMinMidi: 60, centerMaxMidi: 72 },
   { key: "alto", label: "Clave de do en 3ra", vex: "alto", minMidi: 53, maxMidi: 77, centerMinMidi: 58, centerMaxMidi: 70 },
+  { key: "tenor", label: "Clave de do en 4ta", vex: "tenor", minMidi: 48, maxMidi: 72, centerMinMidi: 53, centerMaxMidi: 65 },
   { key: "bass", label: "Clave de fa", vex: "bass", minMidi: 40, maxMidi: 67, centerMinMidi: 45, centerMaxMidi: 58 },
+  { key: "bass8vb", label: "Clave de fa 8va baja", vex: "bass", annotation: "8vb", displayOctaveShift: 1, minMidi: 28, maxMidi: 55, centerMinMidi: 33, centerMaxMidi: 46 },
 ];
 
 const INTERVAL_DEFINITIONS = [
@@ -241,7 +250,6 @@ const INSTRUMENTS = [
   { value: "viola", label: "Viola", soundfont: "viola", fallback: "strings", sustain: true },
   { value: "cello", label: "Violonchelo", soundfont: "cello", fallback: "strings", sustain: true },
   { value: "piano", label: "Piano acústico", soundfont: "acoustic_grand_piano", fallback: "piano", sustain: false },
-  { value: "brightPiano", label: "Piano brillante", soundfont: "bright_acoustic_piano", fallback: "piano", sustain: false },
   { value: "electricPiano", label: "Piano eléctrico", soundfont: "electric_piano_1", fallback: "piano", sustain: false },
   { value: "harpsichord", label: "Clave / harpsichord", soundfont: "harpsichord", fallback: "piano", sustain: false },
   { value: "celesta", label: "Celesta", soundfont: "celesta", fallback: "mallet", sustain: false },
@@ -297,6 +305,20 @@ function midiToFreq(midi) {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
+function pitchClassOf(noteOrMidi) {
+  const midi = typeof noteOrMidi === "number" ? noteOrMidi : noteOrMidi?.midi;
+  return ((midi % 12) + 12) % 12;
+}
+
+function shuffleItems(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 function isAwkwardSpelling(letter, accidental) {
   return (accidental === 1 && (letter === "E" || letter === "B")) || (accidental === -1 && (letter === "C" || letter === "F"));
 }
@@ -316,12 +338,12 @@ function makeNote(letter, octave, accidental) {
 
 function buildAvailableNotes() {
   const notes = [];
-  for (let octave = 2; octave <= 6; octave += 1) {
+  for (let octave = 1; octave <= 8; octave += 1) {
     for (const letter of LETTERS) {
       for (const accidental of [-1, 0, 1]) {
         if (isAwkwardSpelling(letter, accidental)) continue;
         const note = makeNote(letter, octave, accidental);
-        if (note.midi >= 40 && note.midi <= 88) {
+        if (note.midi >= 28 && note.midi <= 108) {
           notes.push(note);
         }
       }
@@ -423,6 +445,16 @@ function getStaffWidth(noteCount) {
   return STAFF_BASE_WIDTH + noteCount * STAFF_NOTE_WIDTH;
 }
 
+function getDisplayedVexKey(note, clef) {
+  const displayOctave = note.octave + (clef.displayOctaveShift ?? 0);
+  return `${note.letter.toLowerCase()}/${displayOctave}`;
+}
+
+function getDisplayedAccidentalStateKey(note, clef) {
+  const displayOctave = note.octave + (clef.displayOctaveShift ?? 0);
+  return `${note.letter}${displayOctave}`;
+}
+
 function getInstrumentConfig(value) {
   return INSTRUMENTS.find((item) => item.value === value) ?? INSTRUMENTS.find((item) => item.value === DEFAULT_INSTRUMENT) ?? INSTRUMENTS[0];
 }
@@ -466,8 +498,7 @@ function sanitizeIntervalSelection(intervalKeys) {
 }
 
 function sanitizeClefSelection(clefKeys) {
-  const unique = [...new Set(clefKeys)].filter((key) => CLEFS.some((clef) => clef.key === key));
-  return unique.length > 0 ? unique : DEFAULT_CLEF_KEYS;
+  return [...new Set(clefKeys)].filter((key) => CLEFS.some((clef) => clef.key === key));
 }
 
 function sanitizeDirectionMode(directionMode, noteCount) {
@@ -644,6 +675,140 @@ function chooseCandidate(candidates, sequence, palette, recentTransitions, model
   return randomItem(best);
 }
 
+function getTwelveToneIntervalKeys(selectedIntervalKeys) {
+  return sanitizeIntervalSelection(selectedIntervalKeys).filter((intervalKey) => {
+    const interval = getIntervalDefinition(intervalKey);
+    if (!interval) return false;
+    return interval.variants.some((variant) => variant.semitones % 12 !== 0);
+  });
+}
+
+function getTwelveToneCandidates(currentNote, selectedIntervalKeys, clefKey, usedPitchClasses) {
+  const allowedSet = new Set(getTwelveToneIntervalKeys(selectedIntervalKeys));
+  if (allowedSet.size === 0) return [];
+
+  return getCandidates(currentNote, null, [...allowedSet], clefKey)
+    .filter((item) => allowedSet.has(item.intervalKey))
+    .filter((item) => !usedPitchClasses.has(pitchClassOf(item.note)))
+    .filter((item) => Math.abs(item.note.midi - currentNote.midi) % 12 !== 0);
+}
+
+function buildTwelveToneSeries(noteCount, selectedIntervalKeys, selectedClefKeys) {
+  const safeCount = clamp(noteCount, 4, 12);
+  const sanitizedIntervals = sanitizeIntervalSelection(selectedIntervalKeys);
+  const usableIntervals = getTwelveToneIntervalKeys(sanitizedIntervals);
+  const sanitizedClefs = sanitizeClefSelection(selectedClefKeys);
+  const clefKey = randomItem(sanitizedClefs.length > 0 ? sanitizedClefs : DEFAULT_CLEF_KEYS);
+  const { all, central } = getNotesForClef(clefKey);
+
+  if (sanitizedIntervals.length === 0) {
+    return {
+      id: `${Date.now()}-${Math.random()}`,
+      sequence: [],
+      intervals: [],
+      startNote: "",
+      palette: [],
+      clefKey,
+      intervalKeys: [],
+      directionMode: "random",
+      modelLabels: [],
+      mode: "twelveTone",
+      generationError: "Selecciona al menos un intervalo para crear la serie dodecafónica.",
+    };
+  }
+
+  if (usableIntervals.length === 0) {
+    return {
+      id: `${Date.now()}-${Math.random()}`,
+      sequence: [],
+      intervals: [],
+      startNote: "",
+      palette: [],
+      clefKey,
+      intervalKeys: sanitizedIntervals,
+      directionMode: "random",
+      modelLabels: [],
+      mode: "twelveTone",
+      generationError: "En modo dodecafónico, la 8J no puede ser el único intervalo porque repite la misma clase de altura.",
+    };
+  }
+
+  const startingPool = shuffleItems(central.length > 0 ? central : all);
+  const maxStarts = Math.min(40, startingPool.length);
+
+  for (let startIndex = 0; startIndex < maxStarts; startIndex += 1) {
+    const start = startingPool[startIndex];
+    const sequence = [start];
+    const transitions = [];
+    const usedPitchClasses = new Set([pitchClassOf(start)]);
+
+    function search(currentNote) {
+      if (sequence.length === safeCount) return true;
+
+      const candidates = shuffleItems(getTwelveToneCandidates(currentNote, usableIntervals, clefKey, usedPitchClasses))
+        .sort((a, b) => {
+          const aCentral = a.note.midi >= getClefConfig(clefKey).centerMinMidi && a.note.midi <= getClefConfig(clefKey).centerMaxMidi ? 0 : 1;
+          const bCentral = b.note.midi >= getClefConfig(clefKey).centerMinMidi && b.note.midi <= getClefConfig(clefKey).centerMaxMidi ? 0 : 1;
+          return aCentral - bCentral;
+        });
+
+      for (const candidate of candidates) {
+        const pc = pitchClassOf(candidate.note);
+        if (usedPitchClasses.has(pc)) continue;
+
+        sequence.push(candidate.note);
+        transitions.push({ intervalKey: candidate.intervalKey, direction: candidate.direction, short: candidate.intervalShort });
+        usedPitchClasses.add(pc);
+
+        if (search(candidate.note)) return true;
+
+        usedPitchClasses.delete(pc);
+        transitions.pop();
+        sequence.pop();
+      }
+
+      return false;
+    }
+
+    if (search(start)) {
+      const intervals = sequence.slice(1).map((note, index) => {
+        const prev = sequence[index];
+        const diff = Math.abs(note.midi - prev.midi);
+        const interval = getIntervalDefinitionBySemitones(diff, usableIntervals);
+        return `${interval?.short ?? diff} ${getIntervalDirectionLabel(prev, note)}`;
+      });
+
+      return {
+        id: `${Date.now()}-${Math.random()}`,
+        sequence,
+        intervals,
+        startNote: sequence[0]?.label ?? "",
+        palette: ["twelveTone"],
+        clefKey,
+        intervalKeys: sanitizedIntervals,
+        directionMode: "random",
+        modelLabels: [],
+        mode: "twelveTone",
+        generationError: "",
+      };
+    }
+  }
+
+  return {
+    id: `${Date.now()}-${Math.random()}`,
+    sequence: [],
+    intervals: [],
+    startNote: "",
+    palette: [],
+    clefKey,
+    intervalKeys: sanitizedIntervals,
+    directionMode: "random",
+    modelLabels: [],
+    mode: "twelveTone",
+    generationError: "No fue posible crear una serie sin repetición con esa combinación de intervalos. Prueba agregar más intervalos.",
+  };
+}
+
 function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys, directionMode) {
   const safeCount = clamp(noteCount, MIN_NOTES, MAX_NOTES);
   const sanitizedIntervals = sanitizeIntervalSelection(selectedIntervalKeys);
@@ -660,6 +825,8 @@ function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys, directio
       intervalKeys: [],
       directionMode: sanitizeDirectionMode(directionMode, safeCount),
       modelLabels: [],
+      mode: "intervals",
+      generationError: "Selecciona al menos un intervalo para generar una sucesión.",
     };
   }
   const sanitizedDirectionMode = sanitizeDirectionMode(directionMode, safeCount);
@@ -722,6 +889,8 @@ function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys, directio
     intervalKeys: sanitizedIntervals,
     directionMode: sanitizedDirectionMode,
     modelLabels: [...new Set(usedModelLabels)],
+    mode: "intervals",
+    generationError: "",
   };
 }
 
@@ -746,7 +915,7 @@ function runSelfTests() {
   console.assert(repeatedTailSize(sampleSequence.slice(0, 3), sampleSequence[3]) === 2, "Debe detectar repetición de cola de tamaño 2");
   console.assert(createsABAPattern([makeNote("C", 4, 0), makeNote("G", 4, 0)], makeNote("C", 4, 0)) === true, "Debe detectar patrón ABA");
   console.assert(sanitizeIntervalSelection(["TT"]).join(",") === DEFAULT_INTERVAL_KEYS.join(","), "El tritono no debe quedar como única selección");
-  console.assert(sanitizeClefSelection([]).join(",") === DEFAULT_CLEF_KEYS.join(","), "Debe existir al menos una clave seleccionada");
+  console.assert(sanitizeClefSelection([]).length === 0, "Debe permitir deseleccionar todas las claves");
   console.assert(getDirectionPlan(2, "ascending")[0] === 1, "Debe existir plan ascendente para 2 notas");
   console.assert(getDirectionPlan(3, "descending").join(",") === "-1,-1", "Debe existir plan descendente para 3 notas");
 
@@ -771,10 +940,16 @@ function runSelfTests() {
   console.assert(clamp(10, MIN_TEMPO, MAX_TEMPO) === 30, "El tempo mínimo debe respetarse");
   console.assert(clamp(240, MIN_TEMPO, MAX_TEMPO) === 200, "El tempo máximo debe respetarse");
   console.assert(clamp(-5, MIN_VOLUME, MAX_VOLUME) === 0, "El volumen mínimo debe respetarse");
-  console.assert(clamp(220, MIN_VOLUME, MAX_VOLUME) === 180, "El volumen máximo debe respetarse");
+  console.assert(clamp(220, MIN_VOLUME, MAX_VOLUME) === 100, "El volumen máximo debe respetarse");
   console.assert(getStaffWidth(24) > getStaffWidth(4), "El pentagrama debe crecer con más notas");
   console.assert(getInstrumentConfig("marimba")?.soundfont === "marimba", "Debe existir la fuente de sonido de marimba");
-  console.assert(getInstrumentConfig("choir")?.soundfont === "choir_aahs", "La voz debe poder cargarse como SoundFont");
+  console.assert(getInstrumentConfig("piano")?.soundfont === "acoustic_grand_piano", "El piano acústico debe ser el instrumento por defecto disponible");
+  console.assert(!INSTRUMENTS.some((item) => item.value === "brightPiano"), "El piano brillante debe estar retirado de la lista");
+  const twelveTone = buildTwelveToneSeries(12, ["P4", "P5", "m2", "M2"], ["treble"]);
+  console.assert(twelveTone.sequence.length === 12, "Debe poder crear una serie dodecafónica de 12 notas");
+  console.assert(new Set(twelveTone.sequence.map((note) => pitchClassOf(note))).size === twelveTone.sequence.length, "La serie dodecafónica no debe repetir clases de altura");
+  console.assert(CLEFS.some((clef) => clef.key === "treble15ma"), "Debe existir la clave de sol dos octavas alta");
+  console.assert(CLEFS.some((clef) => clef.key === "bass8vb"), "Debe existir la clave de fa una octava baja");
 }
 
 if (typeof window !== "undefined") {
@@ -791,6 +966,23 @@ function SelectionChip({ active, onClick, children, disabled = false }) {
         active
           ? "border-zinc-900 bg-zinc-900 text-white"
           : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
+      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ActionButton({ active = false, onClick, children, disabled = false }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center justify-center rounded-2xl border px-4 py-2.5 text-sm font-medium transition ${
+        active
+          ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+          : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"
       } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
     >
       {children}
@@ -829,17 +1021,21 @@ function ScoreRenderer({ notes, clefKey, allowedIntervalKeys }) {
         renderer.resize(width, height);
         const context = renderer.getContext();
         const stave = new Stave(20, 20, width - 40);
-        stave.addClef(clef.vex);
+        try {
+          stave.addClef(clef.vex, "default", clef.annotation);
+        } catch {
+          stave.addClef(clef.vex);
+        }
         stave.setContext(context).draw();
 
         const vexNotes = notes.map((note) => {
           const staveNote = new StaveNote({
             clef: clef.vex,
-            keys: [note.vexKey],
+            keys: [getDisplayedVexKey(note, clef)],
             duration: "w",
           });
 
-          const stateKey = `${note.letter}${note.octave}`;
+          const stateKey = getDisplayedAccidentalStateKey(note, clef);
           const previousAccidental = accidentalState.get(stateKey) ?? 0;
 
           if (note.accidental !== 0) {
@@ -884,21 +1080,24 @@ function ScoreRenderer({ notes, clefKey, allowedIntervalKeys }) {
 export default function IntervalTrainerPage() {
   const audioContextRef = useRef(null);
   const playbackTimeoutRef = useRef(null);
+  const generatePulseTimeoutRef = useRef(null);
   const activeNodesRef = useRef([]);
   const sampleNodesRef = useRef([]);
   const soundfontCacheRef = useRef(new Map());
 
-  const [noteCount, setNoteCount] = useState(8);
+  const [noteCount, setNoteCount] = useState(DEFAULT_NOTE_COUNT);
   const [tempo, setTempo] = useState(DEFAULT_TEMPO);
   const [volume, setVolume] = useState(DEFAULT_VOLUME);
   const [instrument, setInstrument] = useState(DEFAULT_INSTRUMENT);
   const [selectedIntervalKeys, setSelectedIntervalKeys] = useState(DEFAULT_INTERVAL_KEYS);
+  const [useTwelveToneSeries, setUseTwelveToneSeries] = useState(false);
   const [selectedClefKeys, setSelectedClefKeys] = useState(DEFAULT_CLEF_KEYS);
   const [directionMode, setDirectionMode] = useState(DEFAULT_DIRECTION_MODE);
-  const [exercise, setExercise] = useState(() => buildMelody(8, DEFAULT_INTERVAL_KEYS, DEFAULT_CLEF_KEYS, DEFAULT_DIRECTION_MODE));
+  const [exercise, setExercise] = useState(() => buildMelody(DEFAULT_NOTE_COUNT, DEFAULT_INTERVAL_KEYS, DEFAULT_CLEF_KEYS, DEFAULT_DIRECTION_MODE));
   const [revealed, setRevealed] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioStatus, setAudioStatus] = useState("");
+  const [generatePulse, setGeneratePulse] = useState(false);
 
   const noteSummary = useMemo(() => `${noteCount} nota${noteCount === 1 ? "" : "s"}`, [noteCount]);
   const tempoSummary = useMemo(() => `${tempo} BPM`, [tempo]);
@@ -911,7 +1110,12 @@ export default function IntervalTrainerPage() {
     if (noteCount === 3) return SHORT_DIRECTION_OPTIONS;
     return [];
   }, [noteCount]);
+  const twelveToneUsableIntervals = useMemo(() => getTwelveToneIntervalKeys(selectedIntervalKeys), [selectedIntervalKeys]);
+  const noteRangeMin = useTwelveToneSeries ? 4 : MIN_NOTES;
+  const noteRangeMax = useTwelveToneSeries ? 12 : MAX_NOTES;
   const hasSelectedIntervals = selectedIntervalKeys.length > 0;
+  const hasSelectedClefs = selectedClefKeys.length > 0;
+  const canGenerate = hasSelectedIntervals && hasSelectedClefs && (!useTwelveToneSeries || twelveToneUsableIntervals.length > 0);
 
   const stopAllAudio = useCallback(() => {
     sampleNodesRef.current.forEach((node) => {
@@ -991,7 +1195,7 @@ export default function IntervalTrainerPage() {
     const oscillators = [];
     const gains = [];
     const filters = [];
-    const volumeNorm = clamp(volumeLevel, MIN_VOLUME, MAX_VOLUME) / 100;
+    const volumeNorm = (clamp(volumeLevel, MIN_VOLUME, MAX_VOLUME) / 100) * INTERNAL_VOLUME_BOOST;
     const fallbackFamily = getInstrumentFallback(instrumentType);
 
     let attack = 0.04;
@@ -1125,11 +1329,15 @@ export default function IntervalTrainerPage() {
   }, []);
 
   const generateExercise = useCallback((count, nextDirectionMode = directionMode) => {
-    const nextExercise = buildMelody(count, selectedIntervalKeys, selectedClefKeys, nextDirectionMode);
+    stopPlayback();
+    if (selectedIntervalKeys.length === 0 || selectedClefKeys.length === 0) return;
+    const safeCount = useTwelveToneSeries ? clamp(count, 4, 12) : count;
+    const nextExercise = useTwelveToneSeries
+      ? buildTwelveToneSeries(safeCount, selectedIntervalKeys, selectedClefKeys)
+      : buildMelody(safeCount, selectedIntervalKeys, selectedClefKeys, nextDirectionMode);
     setExercise(nextExercise);
     setRevealed(false);
-    stopPlayback();
-  }, [directionMode, selectedIntervalKeys, selectedClefKeys, stopPlayback]);
+  }, [directionMode, selectedIntervalKeys, selectedClefKeys, stopPlayback, useTwelveToneSeries]);
 
   const toggleInterval = useCallback((intervalKey) => {
     setSelectedIntervalKeys((current) => {
@@ -1147,6 +1355,17 @@ export default function IntervalTrainerPage() {
     setSelectedIntervalKeys([]);
   }, []);
 
+  const toggleTwelveToneSeries = useCallback(() => {
+    setUseTwelveToneSeries((current) => {
+      const next = !current;
+      if (next) {
+        setNoteCount((count) => clamp(count, 4, 12));
+        setDirectionMode("random");
+      }
+      return next;
+    });
+  }, []);
+
   const toggleClef = useCallback((clefKey) => {
     setSelectedClefKeys((current) => {
       const exists = current.includes(clefKey);
@@ -1155,13 +1374,21 @@ export default function IntervalTrainerPage() {
     });
   }, []);
 
+  const selectAllClefs = useCallback(() => {
+    setSelectedClefKeys(CLEFS.map((clef) => clef.key));
+  }, []);
+
+  const deselectAllClefs = useCallback(() => {
+    setSelectedClefKeys([]);
+  }, []);
+
   const handleDirectionChange = useCallback((mode) => {
     const sanitized = sanitizeDirectionMode(mode, noteCount);
     setDirectionMode(sanitized);
   }, [noteCount]);
 
   const playSequence = useCallback(async () => {
-    if (!exercise?.sequence?.length || !hasSelectedIntervals || isPlaying) return;
+    if (!exercise?.sequence?.length || !canGenerate || isPlaying) return;
     setIsPlaying(true);
 
     try {
@@ -1190,7 +1417,7 @@ export default function IntervalTrainerPage() {
       }
 
       if (sampleInstrument) {
-        const sampleGain = Math.max(0.0001, Math.min(2.5, (safeVolume / 100) * 1.35));
+        const sampleGain = Math.max(0.0001, Math.min(12, (safeVolume / 100) * SOUNDFONT_GAIN_BOOST));
         exercise.sequence.forEach((note, index) => {
           const node = sampleInstrument.play(getSoundfontNoteName(note), baseTime + index * step, {
             duration: noteDuration,
@@ -1214,7 +1441,18 @@ export default function IntervalTrainerPage() {
       setAudioStatus("Hubo un problema al reproducir el audio.");
       setIsPlaying(false);
     }
-  }, [createInstrumentVoice, ensureAudioContext, exercise, hasSelectedIntervals, instrument, isPlaying, loadSampleInstrument, stopAllAudio, tempo, volume]);
+  }, [canGenerate, createInstrumentVoice, ensureAudioContext, exercise, instrument, isPlaying, loadSampleInstrument, stopAllAudio, tempo, volume]);
+
+  const handleGenerateButton = useCallback(() => {
+    if (!canGenerate) return;
+    generateExercise(noteCount, directionMode);
+    setGeneratePulse(true);
+    if (generatePulseTimeoutRef.current) window.clearTimeout(generatePulseTimeoutRef.current);
+    generatePulseTimeoutRef.current = window.setTimeout(() => {
+      setGeneratePulse(false);
+      generatePulseTimeoutRef.current = null;
+    }, 650);
+  }, [canGenerate, directionMode, generateExercise, noteCount]);
 
   const handlePlayButton = useCallback(() => {
     if (isPlaying) {
@@ -1229,12 +1467,17 @@ export default function IntervalTrainerPage() {
   }, [noteCount]);
 
   useEffect(() => {
+    setNoteCount((current) => clamp(current, noteRangeMin, noteRangeMax));
+  }, [noteRangeMin, noteRangeMax]);
+
+  useEffect(() => {
     generateExercise(noteCount, directionMode);
-  }, [selectedIntervalKeys, selectedClefKeys, directionMode]);
+  }, [selectedIntervalKeys, selectedClefKeys, directionMode, useTwelveToneSeries]);
 
   useEffect(() => {
     return () => {
       if (playbackTimeoutRef.current) window.clearTimeout(playbackTimeoutRef.current);
+      if (generatePulseTimeoutRef.current) window.clearTimeout(generatePulseTimeoutRef.current);
       stopAllAudio();
       if (audioContextRef.current) audioContextRef.current.close();
     };
@@ -1244,7 +1487,7 @@ export default function IntervalTrainerPage() {
     <div className="min-h-screen bg-zinc-100 p-6 md:p-10">
       <div className="mx-auto max-w-5xl space-y-6">
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Entrenador de intervalos melódicos</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Entrenador de intervalos melódicos · Método Aural</h1>
         </div>
 
         <Card className="rounded-2xl shadow-sm">
@@ -1256,16 +1499,16 @@ export default function IntervalTrainerPage() {
               </div>
               <input
                 type="range"
-                min={MIN_NOTES}
-                max={MAX_NOTES}
+                min={noteRangeMin}
+                max={noteRangeMax}
                 step={1}
                 value={noteCount}
-                onChange={(event) => setNoteCount(Number(event.target.value))}
+                onChange={(event) => setNoteCount(clamp(Number(event.target.value), noteRangeMin, noteRangeMax))}
                 className="w-full"
               />
               <div className="flex justify-between text-xs text-zinc-500">
-                <span>2</span>
-                <span>24</span>
+                <span>{noteRangeMin}</span>
+                <span>{noteRangeMax}</span>
               </div>
             </div>
 
@@ -1324,9 +1567,25 @@ export default function IntervalTrainerPage() {
                   </SelectionChip>
                 ))}
               </div>
+              <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3">
+                <SelectionChip active={useTwelveToneSeries} onClick={toggleTwelveToneSeries}>
+                  Serie dodecafónica
+                </SelectionChip>
+                <span className="text-xs text-zinc-500">
+                  Sin repetir clases de altura; disponible de 4 a 12 notas.
+                </span>
+              </div>
               {!hasSelectedIntervals ? (
                 <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   Selecciona al menos un intervalo para generar y escuchar una sucesión.
+                </p>
+              ) : useTwelveToneSeries && twelveToneUsableIntervals.length === 0 ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  En serie dodecafónica, la 8J no puede funcionar sola porque repite la misma clase de altura. Agrega otros intervalos.
+                </p>
+              ) : useTwelveToneSeries ? (
+                <p className="text-xs text-zinc-500">
+                  La serie usa solo los intervalos seleccionados y no repite clases de altura. La 8J se ignora en este modo porque conserva la misma nota.
                 </p>
               ) : (
                 <p className="text-xs text-zinc-500">
@@ -1336,9 +1595,25 @@ export default function IntervalTrainerPage() {
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="text-sm font-medium text-zinc-700">Claves permitidas</span>
-                <Badge variant="secondary" className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-zinc-700">{selectedClefKeys.length} activas</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={selectAllClefs}
+                    className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500"
+                  >
+                    Seleccionar todas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deselectAllClefs}
+                    className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500"
+                  >
+                    Deseleccionar todas
+                  </button>
+                  <Badge variant="secondary" className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-zinc-700">{selectedClefKeys.length} activas</Badge>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 {CLEFS.map((clef) => (
@@ -1351,9 +1626,15 @@ export default function IntervalTrainerPage() {
                   </SelectionChip>
                 ))}
               </div>
-              <p className="text-xs text-zinc-500">
-                Si activas varias claves, cada nueva sucesión puede salir en cualquiera de ellas.
-              </p>
+              {!hasSelectedClefs ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Selecciona al menos una clave para generar y escuchar una sucesión.
+                </p>
+              ) : (
+                <p className="text-xs text-zinc-500">
+                  Si activas varias claves, cada nueva sucesión puede salir en cualquiera de ellas.
+                </p>
+              )}
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
@@ -1393,7 +1674,7 @@ export default function IntervalTrainerPage() {
                 />
                 <div className="flex justify-between text-xs text-zinc-500">
                   <span>0%</span>
-                  <span>180%</span>
+                  <span>100%</span>
                 </div>
               </div>
             </div>
@@ -1439,17 +1720,17 @@ export default function IntervalTrainerPage() {
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Button onClick={() => generateExercise(noteCount, directionMode)} disabled={!hasSelectedIntervals} className="rounded-2xl">
+              <ActionButton onClick={handleGenerateButton} disabled={!canGenerate} active={generatePulse}>
                 <RefreshIcon className="mr-2 h-4 w-4" /> Generar nueva sucesión
-              </Button>
-              <Button onClick={handlePlayButton} disabled={!hasSelectedIntervals} variant="outline" className="rounded-2xl">
+              </ActionButton>
+              <ActionButton onClick={handlePlayButton} disabled={!canGenerate} active={isPlaying}>
                 {isPlaying ? <StopIcon className="mr-2 h-4 w-4" /> : <VolumeIcon className="mr-2 h-4 w-4" />}
                 {isPlaying ? "Parar" : "Escuchar"}
-              </Button>
-              <Button onClick={() => setRevealed((prev) => !prev)} variant="secondary" className="rounded-2xl">
+              </ActionButton>
+              <ActionButton onClick={() => setRevealed((prev) => !prev)} active={revealed}>
                 {revealed ? <EyeOffIcon className="mr-2 h-4 w-4" /> : <EyeIcon className="mr-2 h-4 w-4" />}
                 {revealed ? "Ocultar respuesta" : "Mostrar respuesta"}
-              </Button>
+              </ActionButton>
             </div>
           </CardContent>
         </Card>
@@ -1459,6 +1740,11 @@ export default function IntervalTrainerPage() {
             <CardTitle className="text-xl">Respuesta</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {exercise?.generationError ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
+                {exercise.generationError}
+              </div>
+            ) : null}
             {!revealed && (
               <div className="rounded-2xl border bg-white p-6 text-zinc-600">
                 Presiona “Mostrar respuesta” para ver la melodía escrita en partitura.
