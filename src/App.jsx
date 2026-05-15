@@ -100,8 +100,8 @@ const SOUNDFONT_GAIN_BOOST = 16.0;
 const DEFAULT_INSTRUMENT = "piano";
 const DEFAULT_INTERVAL_KEYS = ["P4", "P5", "P8"];
 const DEFAULT_CLEF_KEYS = ["treble"];
-const SETTINGS_KEY = "intervalTrainer.settings.v6";
-const STATS_KEY = "intervalTrainer.stats.v6";
+const SETTINGS_KEY = "intervalTrainer.settings.v9";
+const STATS_KEY = "intervalTrainer.stats.v9";
 const SOUNDFONT_LIBRARY = "MusyngKite";
 const SOUNDFONT_BASE_URL = "https://gleitz.github.io/midi-js-soundfonts";
 
@@ -198,16 +198,16 @@ const INSTRUMENTS = [
 
 const PIANO_KEYS = [
   { pc: 0, name: "C", display: "Do", type: "white" },
-  { pc: 1, name: "C#", display: "Do♯", type: "black", left: "9%" },
+  { pc: 1, name: "C#", display: "Do♯/Re♭", type: "black", left: "9%" },
   { pc: 2, name: "D", display: "Re", type: "white" },
-  { pc: 3, name: "Eb", display: "Mi♭", type: "black", left: "23.2%" },
+  { pc: 3, name: "Eb", display: "Re♯/Mi♭", type: "black", left: "23.2%" },
   { pc: 4, name: "E", display: "Mi", type: "white" },
   { pc: 5, name: "F", display: "Fa", type: "white" },
-  { pc: 6, name: "F#", display: "Fa♯", type: "black", left: "51.7%" },
+  { pc: 6, name: "F#", display: "Fa♯/Sol♭", type: "black", left: "51.7%" },
   { pc: 7, name: "G", display: "Sol", type: "white" },
-  { pc: 8, name: "Ab", display: "La♭", type: "black", left: "65.9%" },
+  { pc: 8, name: "Ab", display: "Sol♯/La♭", type: "black", left: "65.9%" },
   { pc: 9, name: "A", display: "La", type: "white" },
-  { pc: 10, name: "Bb", display: "Si♭", type: "black", left: "80.2%" },
+  { pc: 10, name: "Bb", display: "La♯/Si♭", type: "black", left: "80.2%" },
   { pc: 11, name: "B", display: "Si", type: "white" },
 ];
 
@@ -266,6 +266,16 @@ const AVAILABLE_NOTES = buildAvailableNotes();
 
 function getClefConfig(clefKey) {
   return CLEFS.find((clef) => clef.key === clefKey) ?? CLEFS[0];
+}
+
+function getClefDisplay(clef) {
+  if (!clef?.tag) return clef?.symbol ?? "𝄞";
+  return `${clef.symbol}${clef.tag}`;
+}
+
+function noteToVexKey(note, clef) {
+  const shift = clef?.displayOctaveShift ?? 0;
+  return `${note.letter.toLowerCase()}/${note.octave + shift}`;
 }
 
 function getIntervalDefinition(intervalKey) {
@@ -545,7 +555,7 @@ function scoreFromStats(stats) {
 }
 
 function Badge({ children }) {
-  return <span className="rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">{children}</span>;
+  return <span className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">{children}</span>;
 }
 
 function SelectionChip({ active, onClick, children, disabled = false, title }) {
@@ -573,7 +583,7 @@ function ActionButton({ active, onClick, children, disabled = false }) {
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-2xl border px-5 py-3 text-sm font-semibold transition ${
+      className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-2xl border px-5 py-3 text-sm font-semibold transition ${
         active
           ? "border-zinc-950 bg-zinc-950 text-white shadow-sm"
           : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-100"
@@ -591,15 +601,43 @@ function ClefChip({ clef, active, onClick }) {
       onClick={onClick}
       title={clef.label}
       aria-label={clef.label}
-      className={`relative flex h-16 min-w-20 items-center justify-center rounded-2xl border px-4 transition ${
+      className={`relative h-20 min-w-[92px] rounded-2xl border px-3 transition ${
         active ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500"
       }`}
     >
-      <span className="font-serif text-4xl leading-none">{clef.symbol}</span>
-      {clef.tag ? <span className="absolute right-2 top-2 rounded-full text-[10px] font-bold tracking-wide">{clef.tag}</span> : null}
+      <svg viewBox="0 0 92 62" className="h-full w-full" aria-hidden="true">
+        {[0, 1, 2, 3, 4].map((line) => (
+          <line
+            key={line}
+            x1="11"
+            x2="81"
+            y1={15 + line * 8}
+            y2={15 + line * 8}
+            stroke="currentColor"
+            strokeWidth="0.9"
+            opacity={active ? 0.72 : 0.55}
+          />
+        ))}
+        <text
+          x="38"
+          y={clef.symbol === "𝄡" ? 43 : 47}
+          textAnchor="middle"
+          fontFamily="Georgia, 'Times New Roman', serif"
+          fontSize={clef.symbol === "𝄞" ? 44 : 37}
+          fill="currentColor"
+        >
+          {clef.symbol}
+        </text>
+        {clef.tag ? (
+          <text x="68" y="16" textAnchor="middle" fontSize="10" fontWeight="700" fill="currentColor">
+            {clef.tag}
+          </text>
+        ) : null}
+      </svg>
     </button>
   );
 }
+
 
 function noteY(note, clef) {
   const shift = clef.displayOctaveShift ?? 0;
@@ -616,90 +654,182 @@ function ledgerLinesForY(x, y) {
 }
 
 function Staff({ exercise, attemptNotes = [], revealFull = false }) {
-  const clef = getClefConfig(exercise?.clefKey ?? "treble");
-  const target = exercise?.sequence ?? [];
-  const notes = revealFull
-    ? target.map((note, index) => ({ note, status: index === 0 ? "start" : "answer" }))
-    : attemptNotes;
-  const width = Math.max(520, 150 + notes.length * 62);
-  const staffLeft = 88;
-  const staffRight = width - 25;
+  const containerRef = useRef(null);
+  const [renderError, setRenderError] = useState("");
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function renderStaff() {
+      if (!containerRef.current) return;
+      containerRef.current.innerHTML = "";
+      setRenderError("");
+
+      const clef = getClefConfig(exercise?.clefKey ?? "treble");
+      const target = exercise?.sequence ?? [];
+      const entries = revealFull
+        ? target.map((note, index) => ({ note, status: index === 0 ? "start" : "answer" }))
+        : attemptNotes;
+
+      if (!entries.length) return;
+
+      try {
+        const VF = await import("vexflow");
+        if (disposed || !containerRef.current) return;
+
+        const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental } = VF;
+        const width = Math.max(560, 150 + entries.length * 82);
+        const height = 185;
+        const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
+        renderer.resize(width, height);
+        const context = renderer.getContext();
+        const stave = new Stave(20, 38, width - 45);
+        stave.addClef(clef.vex);
+        stave.setContext(context).draw();
+
+        const accidentalState = new Map();
+        const vexNotes = entries.map(({ note }) => {
+          const staveNote = new StaveNote({
+            clef: clef.vex,
+            keys: [noteToVexKey(note, clef)],
+            duration: "w",
+          });
+
+          const stateKey = `${note.letter}${note.octave + (clef.displayOctaveShift ?? 0)}`;
+          const previousAccidental = accidentalState.get(stateKey) ?? 0;
+          if (note.accidental !== 0) {
+            staveNote.addModifier(new Accidental(ACCIDENTAL_ASCII[note.accidental]), 0);
+          } else if (previousAccidental !== 0) {
+            staveNote.addModifier(new Accidental("n"), 0);
+          }
+          accidentalState.set(stateKey, note.accidental);
+          return staveNote;
+        });
+
+        const voice = new Voice({ num_beats: entries.length * 4, beat_value: 4 });
+        if (typeof voice.setMode === "function" && Voice.Mode) voice.setMode(Voice.Mode.SOFT);
+        if (typeof voice.setStrict === "function") voice.setStrict(false);
+        voice.addTickables(vexNotes);
+        new Formatter().joinVoices([voice]).format([voice], width - 145);
+        voice.draw(context, stave);
+
+        const svg = containerRef.current.querySelector("svg");
+        const ns = "http://www.w3.org/2000/svg";
+        if (svg) {
+          if (clef.tag) {
+            const tag = document.createElementNS(ns, "text");
+            tag.setAttribute("x", "58");
+            tag.setAttribute("y", "38");
+            tag.setAttribute("font-size", "13");
+            tag.setAttribute("font-weight", "700");
+            tag.setAttribute("fill", "#52525b");
+            tag.textContent = clef.tag;
+            svg.appendChild(tag);
+          }
+
+          entries.forEach((entry, index) => {
+            const status = entry.status;
+            if (status !== "correct" && status !== "wrong" && status !== "start") return;
+            const vexNote = vexNotes[index];
+            const x = typeof vexNote.getAbsoluteX === "function" ? vexNote.getAbsoluteX() : 88 + index * 70;
+            const ys = typeof vexNote.getYs === "function" ? vexNote.getYs() : [90];
+            const y = Array.isArray(ys) && ys.length ? ys[0] : 90;
+
+            if (status === "start") {
+              const startText = document.createElementNS(ns, "text");
+              startText.setAttribute("x", String(x - 16));
+              startText.setAttribute("y", "166");
+              startText.setAttribute("font-size", "11");
+              startText.setAttribute("fill", "#71717a");
+              startText.textContent = "inicio";
+              svg.appendChild(startText);
+              return;
+            }
+
+            const color = status === "correct" ? "#16a34a" : "#dc2626";
+            const mark = document.createElementNS(ns, "text");
+            mark.setAttribute("x", String(x - 7));
+            mark.setAttribute("y", String(y - 24));
+            mark.setAttribute("font-size", "19");
+            mark.setAttribute("font-weight", "800");
+            mark.setAttribute("fill", color);
+            mark.textContent = status === "correct" ? "✓" : "×";
+            svg.appendChild(mark);
+
+            const underline = document.createElementNS(ns, "line");
+            underline.setAttribute("x1", String(x - 15));
+            underline.setAttribute("x2", String(x + 15));
+            underline.setAttribute("y1", String(y + 21));
+            underline.setAttribute("y2", String(y + 21));
+            underline.setAttribute("stroke", color);
+            underline.setAttribute("stroke-width", "3");
+            underline.setAttribute("stroke-linecap", "round");
+            svg.appendChild(underline);
+          });
+        }
+      } catch (error) {
+        console.error("Error al renderizar la partitura:", error);
+        setRenderError("Hubo un problema al dibujar la partitura.");
+      }
+    }
+
+    renderStaff();
+    return () => {
+      disposed = true;
+    };
+  }, [attemptNotes, exercise, revealFull]);
 
   return (
-    <div className="w-full overflow-x-auto rounded-2xl border border-zinc-200 bg-white p-4">
-      <svg width={width} height="165" viewBox={`0 0 ${width} 165`} role="img" aria-label="Pentagrama del ejercicio">
-        {[0, 1, 2, 3, 4].map((i) => (
-          <line key={i} x1={staffLeft} x2={staffRight} y1={44 + i * 14} y2={44 + i * 14} stroke="#18181b" strokeWidth="1.2" />
-        ))}
-        <text x="22" y="91" className="font-serif" fontSize="58" fill="#18181b">{clef.symbol}</text>
-        {clef.tag ? <text x="52" y="42" fontSize="13" fontWeight="700" fill="#52525b">{clef.tag}</text> : null}
-        {notes.map((entry, index) => {
-          const x = staffLeft + 40 + index * 62;
-          const y = noteY(entry.note, clef);
-          const ledger = ledgerLinesForY(x, y);
-          const isWrong = entry.status === "wrong";
-          const isCorrect = entry.status === "correct";
-          const isStart = entry.status === "start";
-          const color = isWrong ? "#dc2626" : isCorrect ? "#16a34a" : "#18181b";
-          return (
-            <g key={`${entry.note.id}-${index}-${entry.status}`}>
-              {ledger.map((line, lineIndex) => (
-                <line key={lineIndex} x1={line.x - 14} x2={line.x + 14} y1={line.y} y2={line.y} stroke="#18181b" strokeWidth="1.1" />
-              ))}
-              {entry.note.accidental !== 0 ? (
-                <text x={x - 27} y={y + 5} fontSize="18" fill={color}>{ACCIDENTAL_DISPLAY[entry.note.accidental]}</text>
-              ) : null}
-              <ellipse cx={x} cy={y} rx="10.5" ry="7" fill={color} transform={`rotate(-18 ${x} ${y})`} />
-              {isCorrect || isWrong ? (
-                <>
-                  <text x={x - 8} y={y - 22} fontSize="20" fontWeight="800" fill={color}>{isCorrect ? "✓" : "×"}</text>
-                  <line x1={x - 15} x2={x + 15} y1={y + 17} y2={y + 17} stroke={color} strokeWidth="3" strokeLinecap="round" />
-                </>
-              ) : null}
-              {isStart ? <text x={x - 16} y="145" fontSize="11" fill="#71717a">inicio</text> : null}
-            </g>
-          );
-        })}
-      </svg>
+    <div className="space-y-3">
+      <div className="w-full overflow-x-auto rounded-2xl border border-zinc-200 bg-white p-3">
+        <div ref={containerRef} />
+      </div>
+      {renderError ? <p className="text-sm text-red-600">{renderError}</p> : null}
     </div>
   );
 }
+
 
 function PianoKeyboard({ onPress, disabled = false, expectedPc = null }) {
   const whiteKeys = PIANO_KEYS.filter((key) => key.type === "white");
   const blackKeys = PIANO_KEYS.filter((key) => key.type === "black");
   return (
-    <div className="relative mx-auto h-36 w-full max-w-2xl select-none rounded-b-2xl border border-zinc-300 bg-zinc-200 p-2 shadow-sm">
-      <div className="flex h-full gap-1">
-        {whiteKeys.map((key) => (
+    <div className="mx-auto w-full max-w-2xl pt-8">
+      <div className="relative h-36 w-full select-none overflow-visible rounded-b-2xl border border-zinc-300 bg-zinc-200 p-2 shadow-sm">
+        <div className="flex h-full gap-1">
+          {whiteKeys.map((key) => (
+            <button
+              type="button"
+              key={key.pc}
+              disabled={disabled}
+              onClick={() => onPress(key.pc)}
+              className={`relative flex flex-1 items-end justify-center rounded-b-xl border border-zinc-300 bg-white pb-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+            >
+              {key.display}
+              {expectedPc === key.pc ? <span className="absolute bottom-8 h-1 w-8 rounded-full bg-sky-600 opacity-60" /> : null}
+            </button>
+          ))}
+        </div>
+        {blackKeys.map((key) => (
           <button
             type="button"
             key={key.pc}
             disabled={disabled}
             onClick={() => onPress(key.pc)}
-            className={`relative flex flex-1 items-end justify-center rounded-b-xl border border-zinc-300 bg-white pb-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+            className={`absolute top-2 z-10 flex h-20 w-[9.5%] items-start justify-center rounded-b-lg bg-zinc-950 px-1 pt-2 text-center text-[9px] font-semibold leading-tight text-white transition hover:bg-zinc-800 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+            style={{ left: key.left }}
           >
-            {key.display}
-            {expectedPc === key.pc ? <span className="absolute bottom-8 h-1 w-8 rounded-full bg-zinc-900 opacity-20" /> : null}
+            <span className="absolute -top-7 left-1/2 w-20 -translate-x-1/2 rounded-full border border-zinc-200 bg-white px-2 py-1 text-[10px] font-semibold leading-none text-zinc-700 shadow-sm">
+              {key.display}
+            </span>
+            {expectedPc === key.pc ? <span className="absolute bottom-7 h-1 w-6 rounded-full bg-sky-300 opacity-90" /> : null}
           </button>
         ))}
       </div>
-      {blackKeys.map((key) => (
-        <button
-          type="button"
-          key={key.pc}
-          disabled={disabled}
-          onClick={() => onPress(key.pc)}
-          className={`absolute top-2 z-10 flex h-20 w-[9.5%] items-end justify-center rounded-b-lg bg-zinc-950 pb-2 text-[10px] font-semibold text-white transition hover:bg-zinc-800 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
-          style={{ left: key.left }}
-        >
-          {key.display}
-          {expectedPc === key.pc ? <span className="absolute bottom-7 h-1 w-6 rounded-full bg-white opacity-30" /> : null}
-        </button>
-      ))}
     </div>
   );
 }
+
 
 function StatBox({ label, value }) {
   return (
@@ -1009,8 +1139,7 @@ export default function IntervalTrainerPage() {
       setNextIndex((current) => current + 1);
       setStats((current) => ({ ...current, correct: current.correct + 1 }));
     } else {
-      const wrongMidi = nearestMidiForPitchClass(pc, expectedNote.midi);
-      setAttemptNotes((current) => [...current, { note: midiToSimpleNote(wrongMidi), status: "wrong" }]);
+      setAttemptNotes((current) => [...current, { note: expectedNote, status: "wrong" }]);
       setStats((current) => ({ ...current, incorrect: current.incorrect + 1 }));
     }
   }, [expectedNote, revealFull]);
@@ -1067,7 +1196,7 @@ export default function IntervalTrainerPage() {
     <div className="min-h-screen bg-zinc-100 p-6 pb-32 text-zinc-950 md:p-10 md:pb-32">
       <div className="mx-auto max-w-5xl space-y-6">
         <header className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Entrenador de intervalos melódicos</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Entrenador de intervalos · Método Aural</h1>
         </header>
 
         <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
@@ -1085,7 +1214,7 @@ export default function IntervalTrainerPage() {
                   step={1}
                   value={safeNoteCount}
                   onChange={(event) => setNoteCount(Number(event.target.value))}
-                  className="w-full accent-zinc-950"
+                  className="w-full accent-sky-600"
                 />
                 <div className="flex justify-between text-xs text-zinc-500">
                   <span>{useTwelveToneSeries ? 4 : 2}</span>
@@ -1144,12 +1273,12 @@ export default function IntervalTrainerPage() {
               <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Tempo</span><Badge>{tempo} BPM</Badge></div>
-                  <input type="range" min={MIN_TEMPO} max={MAX_TEMPO} step={1} value={tempo} onChange={(event) => setTempo(Number(event.target.value))} className="w-full accent-zinc-950" />
+                  <input type="range" min={MIN_TEMPO} max={MAX_TEMPO} step={1} value={tempo} onChange={(event) => setTempo(Number(event.target.value))} className="w-full accent-sky-600" />
                   <div className="flex justify-between text-xs text-zinc-500"><span>30 BPM</span><span>200 BPM</span></div>
                 </div>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Volumen</span><Badge>{volume}%</Badge></div>
-                  <input type="range" min={MIN_VOLUME} max={MAX_VOLUME} step={1} value={volume} onChange={(event) => setVolume(Number(event.target.value))} className="w-full accent-zinc-950" />
+                  <input type="range" min={MIN_VOLUME} max={MAX_VOLUME} step={1} value={volume} onChange={(event) => setVolume(Number(event.target.value))} className="w-full accent-sky-600" />
                   <div className="flex justify-between text-xs text-zinc-500"><span>0%</span><span>100%</span></div>
                 </div>
               </div>
@@ -1164,21 +1293,21 @@ export default function IntervalTrainerPage() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Clave actual</span><Badge>{getClefConfig(exercise.clefKey).label}</Badge></div>
                   <div className="flex h-[50px] items-center rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-700">
-                    <span className="mr-3 font-serif text-3xl">{getClefConfig(exercise.clefKey).symbol}</span>{getClefConfig(exercise.clefKey).label}
+                    <span className="mr-3 font-serif text-3xl">{getClefDisplay(getClefConfig(exercise.clefKey))}</span>{getClefConfig(exercise.clefKey).label}
                   </div>
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-3 border-t border-zinc-100 pt-5">
                 <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
-                  <RefreshIcon className="mr-2 h-4 w-4" /> Generar nueva sucesión
+                  <RefreshIcon className="h-4 w-4" /> Generar nueva sucesión
                 </ActionButton>
                 <ActionButton active={isPlaying} onClick={() => (isPlaying ? stopPlayback() : playExercise(exercise))}>
-                  {isPlaying ? <StopIcon className="mr-2 h-4 w-4" /> : <VolumeIcon className="mr-2 h-4 w-4" />}
+                  {isPlaying ? <StopIcon className="h-4 w-4" /> : <VolumeIcon className="h-4 w-4" />}
                   {isPlaying ? "Parar" : "Escuchar"}
                 </ActionButton>
                 <ActionButton active={revealFull} onClick={() => setRevealFull((current) => !current)}>
-                  {revealFull ? <EyeOffIcon className="mr-2 h-4 w-4" /> : <EyeIcon className="mr-2 h-4 w-4" />}
+                  {revealFull ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
                   {revealFull ? "Ocultar respuesta" : "Mostrar respuesta completa"}
                 </ActionButton>
               </div>
@@ -1239,9 +1368,9 @@ export default function IntervalTrainerPage() {
           <button
             type="button"
             onClick={resetEverything}
-            className="inline-flex items-center justify-center rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 sm:col-span-3 lg:col-span-1"
+            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 sm:col-span-3 lg:col-span-1"
           >
-            <ResetIcon className="mr-2 h-4 w-4" /> Reiniciar
+            <ResetIcon className="h-4 w-4" /> Reiniciar
           </button>
         </div>
       </div>
