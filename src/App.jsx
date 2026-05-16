@@ -1239,8 +1239,8 @@ function TunerPanel({ notes = [], visible = false }) {
       lastPitchAtRef.current = now;
       const previousPitch = smoothedPitchRef.current;
       const intervalFromPrevious = previousPitch ? Math.abs(1200 * Math.log2(pitch / previousPitch)) : Infinity;
-      const nextPitch = previousPitch && intervalFromPrevious < 350
-        ? previousPitch * 0.7 + pitch * 0.3
+      const nextPitch = previousPitch && intervalFromPrevious < 450
+        ? previousPitch * 0.45 + pitch * 0.55
         : pitch;
       smoothedPitchRef.current = nextPitch;
 
@@ -1255,9 +1255,9 @@ function TunerPanel({ notes = [], visible = false }) {
 
       if (rawCents != null) {
         const previousCents = smoothedCentsRef.current;
-        const nextCents = previousCents == null || Math.abs(rawCents - previousCents) > 38
+        const nextCents = previousCents == null || Math.abs(rawCents - previousCents) > 55
           ? rawCents
-          : previousCents * 0.72 + rawCents * 0.28;
+          : previousCents * 0.5 + rawCents * 0.5;
         smoothedCentsRef.current = nextCents;
         const clamped = clamp(nextCents, -50, 50);
         setDetectedHz(nextPitch);
@@ -1309,7 +1309,7 @@ function TunerPanel({ notes = [], visible = false }) {
       const ctx = audioContextRef.current;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 4096;
-      analyser.smoothingTimeConstant = 0.08;
+      analyser.smoothingTimeConstant = 0.02;
       const source = ctx.createMediaStreamSource(stream);
       source.connect(analyser);
       streamRef.current = stream;
@@ -1335,15 +1335,28 @@ function TunerPanel({ notes = [], visible = false }) {
   const activeNoteName = mode === "study" && targetNote ? targetNote.label : detectedLabel;
 
   return (
-    <div className={`mx-auto mt-3 w-full max-w-2xl rounded-2xl border p-3 transition ${inTune ? "border-emerald-300 bg-emerald-50/70" : "border-zinc-200 bg-zinc-50"}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-semibold text-zinc-800">Afinador</p>
-          {mode === "study" ? <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">{targetIndex + 1}/{notes.length}</span> : null}
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
+    <div className={`mx-auto mt-2 w-full max-w-2xl rounded-2xl border p-2.5 transition ${inTune ? "border-emerald-300 bg-emerald-50/70" : "border-zinc-200 bg-zinc-50"}`}>
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button type="button" onClick={() => setMode("study")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${mode === "study" ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}>Estudio</button>
           <button type="button" onClick={() => setMode("free")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${mode === "free" ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}>Libre</button>
+          {mode === "study" ? <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">{targetIndex + 1}/{notes.length}</span> : null}
+        </div>
+
+        <div className="text-center">
+          {mode === "study" ? (
+            <div className="flex items-center justify-center gap-2">
+              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); setTargetIndex((i) => Math.max(0, i - 1)); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
+              <div className="min-w-[86px] text-center text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
+              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); setTargetIndex((i) => Math.min(notes.length - 1, i + 1)); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">→</button>
+            </div>
+          ) : (
+            <div className="min-w-[86px] text-center text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
+          )}
+          <div className="mt-1 text-[11px] font-medium text-zinc-500">{Number.isFinite(cents) ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents` : "—"}</div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           {mode === "study" ? (
             <>
               <button type="button" onClick={() => setHoldSeconds((s) => clamp(s - 0.5, 0.5, 5))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-[11px] text-zinc-700">−</button>
@@ -1355,35 +1368,28 @@ function TunerPanel({ notes = [], visible = false }) {
         </div>
       </div>
 
-      {mode === "study" ? (
-        <div className="mt-2 flex items-center justify-center gap-2">
-          <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); setTargetIndex((i) => Math.max(0, i - 1)); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
-          <div className="min-w-[96px] text-center text-2xl font-bold tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
-          <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); setTargetIndex((i) => Math.min(notes.length - 1, i + 1)); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">→</button>
-        </div>
-      ) : (
-        <div className="mt-2 text-center text-2xl font-bold tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
-      )}
-
       <div className={`mt-2 rounded-xl border bg-white p-2 transition ${inTune ? "border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]" : "border-zinc-200"}`}>
         <div className="mb-1 flex items-center justify-between text-[11px] text-zinc-500">
           <span>{detectedHz ? `${detectedHz.toFixed(1)} Hz` : "Escuchando…"}</span>
-          <span>{Number.isFinite(cents) ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents` : "—"}</span>
+          <span>±50 cents</span>
         </div>
-        <div className="relative h-14 overflow-hidden rounded-lg border border-zinc-200 bg-gradient-to-r from-rose-100 via-emerald-100 to-rose-100">
+        <div className="relative h-12 overflow-hidden rounded-lg border border-zinc-200 bg-gradient-to-r from-rose-100 via-emerald-100 to-rose-100">
           <div className="absolute inset-y-0 left-1/2 w-[20%] -translate-x-1/2 bg-emerald-300/65" />
           <div className={`absolute inset-y-1 left-1/2 w-[20%] -translate-x-1/2 rounded-md border transition ${inTune ? "border-emerald-700 bg-emerald-400/35" : "border-emerald-600/40 bg-transparent"}`} />
           <div className="absolute inset-y-0 left-1/2 w-px bg-zinc-900/70" />
           <svg viewBox="0 0 200 56" className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
             <line x1="0" x2="200" y1="28" y2="28" stroke="#71717a" strokeWidth="1" opacity="0.45" />
-            {trailPoints ? <polyline points={trailPoints} fill="none" stroke={inTune ? "#047857" : "#0f172a"} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /> : null}
+            {trailPoints ? <polyline points={trailPoints} fill="none" stroke={inTune ? "#047857" : "#0f172a"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /> : null}
           </svg>
           {boundedCents != null ? (
-            <div className={`absolute top-0 h-full w-0.5 shadow-[0_0_10px_rgba(14,165,233,0.55)] transition-[left] duration-300 ease-out ${inTune ? "bg-emerald-700" : "bg-sky-500"}`} style={{ left: `${clamp(markerLeft, 0, 100)}%` }} />
+            <div
+              className={`absolute top-0 h-full w-0.5 shadow-[0_0_10px_rgba(14,165,233,0.55)] transition-transform duration-150 ease-out ${inTune ? "bg-emerald-700" : "bg-sky-500"}`}
+              style={{ left: `${clamp(markerLeft, 0, 100)}%` }}
+            />
           ) : null}
         </div>
         {mode === "study" ? (
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200"><div className="h-full rounded-full bg-emerald-500 transition-[width] duration-500 ease-out" style={{ width: `${Math.round(holdProgress * 100)}%` }} /></div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200"><div className="h-full rounded-full bg-emerald-500 transition-[width] duration-150 ease-linear" style={{ width: `${Math.round(holdProgress * 100)}%` }} /></div>
         ) : null}
       </div>
     </div>
@@ -2060,19 +2066,18 @@ export default function IntervalTrainerPage() {
                   {revealFull ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
                   {revealFull ? "Respuesta completa mostrada" : "Mostrar respuesta completa"}
                 </ActionButton>
+                {exerciseComplete || revealFull ? (
+                  <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
+                    <RefreshIcon className="h-4 w-4" /> Siguiente ejercicio
+                  </ActionButton>
+                ) : null}
               </div>
 
               <div className="rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-sm sm:p-2">
                 <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} onNotePress={playSingleNote} />
                 <div className="border-t border-zinc-100 px-2 pb-3 pt-1">
                   <TunerPanel notes={getExerciseTuningNotes(exercise)} visible={exerciseComplete || revealFull} />
-                  {exerciseComplete || revealFull ? (
-                    <div className="mx-auto flex w-full max-w-2xl justify-center pt-3">
-                      <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
-                        <RefreshIcon className="h-4 w-4" /> Siguiente ejercicio
-                      </ActionButton>
-                    </div>
-                  ) : (
+                  {exerciseComplete || revealFull ? null : (
                     <PianoKeyboard onPress={handleKeyboardPress} disabled={false} />
                   )}
                 </div>
