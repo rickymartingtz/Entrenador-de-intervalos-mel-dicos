@@ -639,7 +639,7 @@ function ClefChip({ clef, active, onClick }) {
       aria-label={clef.label}
       className={`inline-flex min-h-[42px] items-center justify-center rounded-full border px-4 py-2 text-sm font-medium transition ${
         active
-          ? "border-sky-400 bg-sky-50 text-sky-800 ring-2 ring-sky-100"
+          ? "border-zinc-900 bg-zinc-900 text-white"
           : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-50"
       }`}
     >
@@ -1372,27 +1372,27 @@ export default function IntervalTrainerPage() {
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                  <p className="text-sm font-medium text-zinc-500">Modelos reconocibles en la sucesión</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {modelLabels.length > 0 ? (
-                      modelLabels.map((label) => <Badge key={label}>{label}</Badge>)
-                    ) : (
-                      <span className="text-xs text-zinc-500">Sin modelo reconocible en esta sucesión.</span>
-                    )}
+              {exerciseComplete || revealFull ? (
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <p className="text-sm font-medium text-zinc-500">Modelos reconocibles en la sucesión</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {modelLabels.length > 0 ? (
+                        modelLabels.map((label) => <Badge key={label}>{label}</Badge>)
+                      ) : (
+                        <span className="text-xs text-zinc-500">Sin modelo reconocible en esta sucesión.</span>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                {revealFull ? (
                   <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                     <p className="text-sm font-medium text-zinc-500">Saltos entre notas consecutivas</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {intervalLabels.map((item, index) => <Badge key={`${item}-${index}`}>{item}</Badge>)}
                     </div>
                   </div>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </section>
