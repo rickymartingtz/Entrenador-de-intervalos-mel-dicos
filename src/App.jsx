@@ -123,6 +123,7 @@ const DEFAULT_CHORD_LINK_MODES = ["common1", "common2", "parallel"];
 const DEFAULT_CHORD_BASS_INSTRUMENT = "cello";
 const DEFAULT_CHORD_MIDDLE_INSTRUMENT = "viola";
 const DEFAULT_CHORD_UPPER_INSTRUMENT = "violin";
+const DEFAULT_CHORD_INSTRUMENT_PRESET = "custom";
 const HARMONIC_MIN_PAIRS = 1;
 const HARMONIC_MAX_PAIRS = 12;
 const CHORD_MIN_COUNT = 1;
@@ -139,6 +140,41 @@ const CHORD_LINK_OPTIONS = [
   { key: "common2", label: "2 notas comunes" },
   { key: "parallel", label: "Paralelo" },
 ];
+
+const CHORD_INSTRUMENT_PRESETS = [
+  { key: "custom", label: "Personalizado", type: "custom" },
+  { key: "random", label: "Aleatorio", type: "random" },
+  { key: "randomSustained", label: "Aleatorio sostenido", type: "random", pool: "sustained" },
+  { key: "randomPercussive", label: "Aleatorio percutido", type: "random", pool: "percussive" },
+  { key: "stringsTrio", label: "Cuerdas: cello · viola · violín", bass: "cello", middle: "viola", upper: "violin", family: "sustained" },
+  { key: "lowStrings", label: "Cuerdas graves: contrabajo · cello · viola", bass: "contrabass", middle: "cello", upper: "viola", family: "sustained" },
+  { key: "woodwinds", label: "Maderas: fagot · clarinete · flauta", bass: "bassoon", middle: "clarinet", upper: "flute", family: "sustained" },
+  { key: "doubleReeds", label: "Dobles lengüetas: fagot · corno inglés · oboe", bass: "bassoon", middle: "englishHorn", upper: "oboe", family: "sustained" },
+  { key: "brass", label: "Metales: trombón · corno · trompeta", bass: "trombone", middle: "frenchHorn", upper: "trumpet", family: "sustained" },
+  { key: "saxes", label: "Saxofones: barítono · tenor · soprano", bass: "baritoneSax", middle: "tenorSax", upper: "sopranoSax", family: "sustained" },
+  { key: "voices", label: "Voces: oohs · oohs · oohs", bass: "voiceOohs", middle: "voiceOohs", upper: "voiceOohs", family: "sustained" },
+  { key: "pianoSolo", label: "Piano solo", bass: "piano", middle: "piano", upper: "piano", family: "percussive" },
+  { key: "nylonGuitarSolo", label: "Guitarra de nylon solo", bass: "nylonGuitar", middle: "nylonGuitar", upper: "nylonGuitar", family: "percussive" },
+  { key: "jazzGuitarSolo", label: "Guitarra jazz solo", bass: "jazzGuitar", middle: "jazzGuitar", upper: "jazzGuitar", family: "percussive" },
+  { key: "harpSolo", label: "Arpa solo", bass: "orchestralHarp", middle: "orchestralHarp", upper: "orchestralHarp", family: "percussive" },
+  { key: "marimbaSolo", label: "Marimba solo", bass: "marimba", middle: "marimba", upper: "marimba", family: "percussive" },
+  { key: "vibraphoneSolo", label: "Vibráfono solo", bass: "vibraphone", middle: "vibraphone", upper: "vibraphone", family: "percussive" },
+  { key: "celestaSolo", label: "Celesta solo", bass: "celesta", middle: "celesta", upper: "celesta", family: "percussive" },
+];
+
+function getChordInstrumentPreset(key) {
+  return CHORD_INSTRUMENT_PRESETS.find((preset) => preset.key === key) ?? CHORD_INSTRUMENT_PRESETS[0];
+}
+
+function resolveChordInstrumentPreset(key) {
+  const preset = getChordInstrumentPreset(key);
+  if (!preset || preset.type === "custom") return null;
+  if (preset.type === "random") {
+    const pool = CHORD_INSTRUMENT_PRESETS.filter((item) => item.bass && item.middle && item.upper && (!preset.pool || item.family === preset.pool));
+    return randomItem(pool.length ? pool : CHORD_INSTRUMENT_PRESETS.filter((item) => item.bass));
+  }
+  return preset;
+}
 const SETTINGS_KEY = "intervalTrainer.settings.v11";
 const STATS_KEY = "intervalTrainer.stats.v11";
 const MARKS_KEY = "intervalTrainer.marks.v12";
@@ -1098,31 +1134,46 @@ function transposeChordParallel(chord, selectedIntervalKeys, clef) {
   for (let attempt = 0; attempt < 80; attempt += 1) {
     const interval = randomItem(usable);
     const direction = Math.random() > 0.5 ? 1 : -1;
-    const next = [chord.lower, chord.middle, chord.upper].map((note) => midiToSimpleNote(note.midi + direction * interval.semitones));
-    if (next.every((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi)) {
-      const sorted = sortChordVoices(next);
-      return { ...sorted, linkMode: "parallel" };
+    const lower = midiToSimpleNote(chord.lower.midi + direction * interval.semitones);
+    const middle = midiToSimpleNote(chord.middle.midi + direction * interval.semitones);
+    const upper = midiToSimpleNote(chord.upper.midi + direction * interval.semitones);
+    const next = { lower, middle, upper };
+    if (lower.midi < middle.midi && middle.midi < upper.midi && [lower, middle, upper].every((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi)) {
+      return { ...next, linkMode: "parallel" };
     }
   }
   return null;
 }
 
+function makeChordWithFixedRoles(fixedRoles, selectedIntervalKeys, clef) {
+  const pool = AVAILABLE_NOTES.filter((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi);
+  const lowerPool = fixedRoles.lower ? [fixedRoles.lower] : pool;
+  const middlePool = fixedRoles.middle ? [fixedRoles.middle] : pool;
+  const upperPool = fixedRoles.upper ? [fixedRoles.upper] : pool;
+
+  for (let attempt = 0; attempt < 2600; attempt += 1) {
+    const lower = randomItem(lowerPool);
+    const middle = randomItem(middlePool);
+    const upper = randomItem(upperPool);
+    if (!lower || !middle || !upper) continue;
+    if (!(lower.midi < middle.midi && middle.midi < upper.midi)) continue;
+    const chord = { lower, middle, upper };
+    if (!chordUsesSelectedIntervals(chord, selectedIntervalKeys)) continue;
+    return chord;
+  }
+  return null;
+}
+
 function makeChordWithCommonNotes(previousChord, selectedIntervalKeys, clef, commonCount = 1) {
-  const previousVoices = [previousChord.lower, previousChord.middle, previousChord.upper];
-  for (let attempt = 0; attempt < 160; attempt += 1) {
-    const keep = [...previousVoices].sort(() => Math.random() - 0.5).slice(0, commonCount);
-    const generated = makeRandomChord(clef, selectedIntervalKeys, false);
-    const movingPool = [generated.lower, generated.middle, generated.upper];
-    const combined = [...keep];
-    for (const candidate of movingPool.sort(() => Math.random() - 0.5)) {
-      if (combined.length >= 3) break;
-      if (!combined.some((note) => note.midi === candidate.midi)) combined.push(candidate);
-    }
-    if (combined.length < 3) continue;
-    const sorted = sortChordVoices(combined);
-    if (sorted.lower.midi < clef.minMidi || sorted.upper.midi > clef.maxMidi) continue;
-    const common = [sorted.lower, sorted.middle, sorted.upper].filter((note) => previousVoices.some((prev) => prev.midi === note.midi)).length;
-    if (common >= commonCount) return { ...sorted, linkMode: commonCount === 2 ? "common2" : "common1" };
+  const roles = ["lower", "middle", "upper"];
+  for (let attempt = 0; attempt < 220; attempt += 1) {
+    const keepRoles = [...roles].sort(() => Math.random() - 0.5).slice(0, commonCount);
+    const fixed = {};
+    keepRoles.forEach((role) => { fixed[role] = previousChord[role]; });
+    const generated = makeChordWithFixedRoles(fixed, selectedIntervalKeys, clef);
+    if (!generated) continue;
+    const sameRoleCommons = roles.filter((role) => generated[role]?.midi === previousChord[role]?.midi).length;
+    if (sameRoleCommons >= commonCount) return { ...generated, linkMode: commonCount === 2 ? "common2" : "common1" };
   }
   return null;
 }
@@ -1165,14 +1216,14 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
 
 function makeInitialAttempts(exercise, harmonicResponseMode = DEFAULT_HARMONIC_RESPONSE_MODE) {
   if (exercise?.type === "chords") {
-    return (exercise.chords ?? []).map((chord) => ({
+    return (exercise.chords ?? []).map((chord, index) => ({
       lower: chord.lower,
       middle: chord.middle,
       upper: chord.upper,
-      lowerVisible: false,
+      lowerVisible: index === 0,
       middleVisible: false,
       upperVisible: false,
-      lowerStatus: null,
+      lowerStatus: index === 0 ? "given" : null,
       middleStatus: null,
       upperStatus: null,
     }));
@@ -1209,7 +1260,7 @@ function nextHarmonicStepAfter(step, exercise, harmonicResponseMode) {
 
 function firstChordStep(exercise) {
   if (!exercise?.chords?.length) return null;
-  return { chordIndex: 0, voice: "lower" };
+  return { chordIndex: 0, voice: "middle" };
 }
 
 function nextChordStepAfter(step, exercise) {
@@ -1285,6 +1336,7 @@ function initialSettings() {
     chordBassInstrument: DEFAULT_CHORD_BASS_INSTRUMENT,
     chordMiddleInstrument: DEFAULT_CHORD_MIDDLE_INSTRUMENT,
     chordUpperInstrument: DEFAULT_CHORD_UPPER_INSTRUMENT,
+    chordInstrumentPreset: DEFAULT_CHORD_INSTRUMENT_PRESET,
   };
   try {
     const stored = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) || "null");
@@ -1308,6 +1360,7 @@ function initialSettings() {
       chordBassInstrument: INSTRUMENTS.some((item) => item.value === stored.chordBassInstrument) ? stored.chordBassInstrument : DEFAULT_CHORD_BASS_INSTRUMENT,
       chordMiddleInstrument: INSTRUMENTS.some((item) => item.value === stored.chordMiddleInstrument) ? stored.chordMiddleInstrument : DEFAULT_CHORD_MIDDLE_INSTRUMENT,
       chordUpperInstrument: INSTRUMENTS.some((item) => item.value === stored.chordUpperInstrument) ? stored.chordUpperInstrument : DEFAULT_CHORD_UPPER_INSTRUMENT,
+      chordInstrumentPreset: CHORD_INSTRUMENT_PRESETS.some((item) => item.key === stored.chordInstrumentPreset) ? stored.chordInstrumentPreset : DEFAULT_CHORD_INSTRUMENT_PRESET,
     };
   } catch {
     return defaults;
@@ -1712,14 +1765,16 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
                 if (item.visible !== false) {
                   groupYs.push(y);
                   if (isChordExercise && (item.status === "correct" || item.status === "wrong")) {
-                    const color = item.status === "correct" ? "#16a34a" : "#dc2626";
+                    const color = item.status === "correct" ? "#2f6f4e" : "#8a3d3d";
                     const head = document.createElementNS(ns, "ellipse");
                     head.setAttribute("cx", String(noteX));
                     head.setAttribute("cy", String(y));
-                    head.setAttribute("rx", "10.5");
-                    head.setAttribute("ry", "7.5");
-                    head.setAttribute("fill", color);
-                    head.setAttribute("opacity", "0.55");
+                    head.setAttribute("rx", "10.8");
+                    head.setAttribute("ry", "7.8");
+                    head.setAttribute("fill", "none");
+                    head.setAttribute("stroke", color);
+                    head.setAttribute("stroke-width", "2.4");
+                    head.setAttribute("opacity", "0.95");
                     head.setAttribute("pointer-events", "none");
                     svg.appendChild(head);
                   } else {
@@ -2366,6 +2421,7 @@ export default function IntervalTrainerPage() {
   const [chordBassInstrument, setChordBassInstrument] = useState(saved?.chordBassInstrument ?? DEFAULT_CHORD_BASS_INSTRUMENT);
   const [chordMiddleInstrument, setChordMiddleInstrument] = useState(saved?.chordMiddleInstrument ?? DEFAULT_CHORD_MIDDLE_INSTRUMENT);
   const [chordUpperInstrument, setChordUpperInstrument] = useState(saved?.chordUpperInstrument ?? DEFAULT_CHORD_UPPER_INSTRUMENT);
+  const [chordInstrumentPreset, setChordInstrumentPreset] = useState(saved?.chordInstrumentPreset ?? DEFAULT_CHORD_INSTRUMENT_PRESET);
   const [exercise, setExercise] = useState(() => {
     const mode = saved?.trainerMode ?? DEFAULT_TRAINER_MODE;
     if (mode === "chords") {
@@ -2460,9 +2516,10 @@ export default function IntervalTrainerPage() {
         chordBassInstrument,
         chordMiddleInstrument,
         chordUpperInstrument,
+        chordInstrumentPreset,
       }));
     } catch {}
-  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordMiddleInstrument, chordRepeat, chordUpperInstrument, directionMode, harmonicResponseMode, instrument, noteCount, selectedChordLinkModes, selectedClefKeys, selectedIntervalKeys, tempo, trainerMode, useTwelveToneSeries, volume]);
+  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordInstrumentPreset, chordMiddleInstrument, chordRepeat, chordUpperInstrument, directionMode, harmonicResponseMode, instrument, noteCount, selectedChordLinkModes, selectedClefKeys, selectedIntervalKeys, tempo, trainerMode, useTwelveToneSeries, volume]);
 
   useEffect(() => {
     try {
@@ -2656,8 +2713,9 @@ export default function IntervalTrainerPage() {
     try {
       const ctx = await ensureAudioContext();
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
+      const chordUnit = isChordExercise ? secondsPerBeat * 4 : secondsPerBeat;
       const gapMultiplier = chordGapMode === "noSilence" ? 0.96 : 1;
-      const step = secondsPerBeat * gapMultiplier;
+      const step = chordUnit * gapMultiplier;
       const baseDuration = chordGapMode === "noSilence" ? step * 0.96 : step * 0.72;
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
       const instrumentConfigs = isChordExercise
@@ -2689,11 +2747,11 @@ export default function IntervalTrainerPage() {
       const events = [];
 
       if (isChordExercise) {
-        (exerciseToPlay?.chords ?? []).forEach((chord) => {
+        (exerciseToPlay?.chords ?? []).forEach((chord, chordIndex) => {
           const lower = { note: chord.lower, instrument: instrumentConfigs.lower, voice: "lower" };
           const middle = { note: chord.middle, instrument: instrumentConfigs.middle, voice: "middle" };
           const upper = { note: chord.upper, instrument: instrumentConfigs.upper, voice: "upper" };
-          if (chordEntryMode === "gradual") {
+          if (chordEntryMode === "gradual" && chordIndex === 0) {
             events.push([lower]);
             if (chordRepeat) events.push([lower]);
             events.push([lower, middle]);
@@ -2939,6 +2997,15 @@ export default function IntervalTrainerPage() {
   const selectAllChordLinkModes = useCallback(() => setSelectedChordLinkModes(CHORD_LINK_OPTIONS.map((item) => item.key)), []);
   const deselectAllChordLinkModes = useCallback(() => setSelectedChordLinkModes([]), []);
 
+  const applyChordInstrumentPreset = useCallback((presetKey) => {
+    const resolved = resolveChordInstrumentPreset(presetKey);
+    setChordInstrumentPreset(presetKey);
+    if (!resolved) return;
+    setChordBassInstrument(resolved.bass);
+    setChordMiddleInstrument(resolved.middle);
+    setChordUpperInstrument(resolved.upper);
+  }, []);
+
   const addTimeMark = useCallback((label = "Marca de estudio") => {
     setTimeMarks((current) => {
       const nextMark = {
@@ -2998,6 +3065,7 @@ export default function IntervalTrainerPage() {
     setChordBassInstrument(DEFAULT_CHORD_BASS_INSTRUMENT);
     setChordMiddleInstrument(DEFAULT_CHORD_MIDDLE_INSTRUMENT);
     setChordUpperInstrument(DEFAULT_CHORD_UPPER_INSTRUMENT);
+    setChordInstrumentPreset(DEFAULT_CHORD_INSTRUMENT_PRESET);
     setExercise(freshExercise);
     setAttemptNotes(makeInitialAttempts(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
     setNextIndex(1);
@@ -3163,18 +3231,30 @@ export default function IntervalTrainerPage() {
               </div>
 
               {isChordMode ? (
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-4">
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Bajo</span><Badge>{getInstrumentConfig(chordBassInstrument)?.label}</Badge></div>
-                    <select value={chordBassInstrument} onChange={(event) => setChordBassInstrument(event.target.value)} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                    <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Combinación de instrumentos</span><Badge>{getChordInstrumentPreset(chordInstrumentPreset)?.label}</Badge></div>
+                    <select
+                      value={chordInstrumentPreset}
+                      onChange={(event) => applyChordInstrumentPreset(event.target.value)}
+                      className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500"
+                    >
+                      {CHORD_INSTRUMENT_PRESETS.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+                    </select>
                   </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Voz media</span><Badge>{getInstrumentConfig(chordMiddleInstrument)?.label}</Badge></div>
-                    <select value={chordMiddleInstrument} onChange={(event) => setChordMiddleInstrument(event.target.value)} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Voz alta</span><Badge>{getInstrumentConfig(chordUpperInstrument)?.label}</Badge></div>
-                    <select value={chordUpperInstrument} onChange={(event) => setChordUpperInstrument(event.target.value)} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Bajo</span><Badge>{getInstrumentConfig(chordBassInstrument)?.label}</Badge></div>
+                      <select value={chordBassInstrument} onChange={(event) => { setChordInstrumentPreset("custom"); setChordBassInstrument(event.target.value); }} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Voz media</span><Badge>{getInstrumentConfig(chordMiddleInstrument)?.label}</Badge></div>
+                      <select value={chordMiddleInstrument} onChange={(event) => { setChordInstrumentPreset("custom"); setChordMiddleInstrument(event.target.value); }} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Voz alta</span><Badge>{getInstrumentConfig(chordUpperInstrument)?.label}</Badge></div>
+                      <select value={chordUpperInstrument} onChange={(event) => { setChordInstrumentPreset("custom"); setChordUpperInstrument(event.target.value); }} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                    </div>
                   </div>
                 </div>
               ) : (
