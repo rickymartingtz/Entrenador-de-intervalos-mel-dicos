@@ -639,12 +639,12 @@ function ClefChip({ clef, active, onClick }) {
 
     try {
       const { Renderer, Stave } = VF;
-      const width = 118;
-      const height = 70;
+      const width = 148;
+      const height = 100;
       const renderer = new Renderer(previewRef.current, Renderer.Backends.SVG);
       renderer.resize(width, height);
       const context = renderer.getContext();
-      const stave = new Stave(6, 7, width - 12);
+      const stave = new Stave(10, 22, width - 20);
       stave.addClef(clef.vex);
       stave.setContext(context).draw();
 
@@ -655,7 +655,7 @@ function ClefChip({ clef, active, onClick }) {
         svg.style.width = "100%";
         svg.style.height = "100%";
         svg.style.overflow = "visible";
-        svg.style.transform = "translateY(-6px) scale(0.9)";
+        svg.style.transform = "translateY(-2px) scale(0.78)";
         svg.style.transformOrigin = "center center";
 
         svg.querySelectorAll("path, rect, line").forEach((node) => {
@@ -669,9 +669,9 @@ function ClefChip({ clef, active, onClick }) {
         if (clef.tag) {
           const ns = "http://www.w3.org/2000/svg";
           const tag = document.createElementNS(ns, "text");
-          tag.setAttribute("x", "95");
-          tag.setAttribute("y", clef.tag === "8vb" ? "58" : "17");
-          tag.setAttribute("font-size", "11");
+          tag.setAttribute("x", "122");
+          tag.setAttribute("y", clef.tag === "8vb" ? "77" : "30");
+          tag.setAttribute("font-size", "13");
           tag.setAttribute("font-weight", "700");
           tag.setAttribute("fill", accent);
           tag.textContent = clef.tag;
@@ -689,7 +689,7 @@ function ClefChip({ clef, active, onClick }) {
       onClick={onClick}
       title={clef.label}
       aria-label={clef.label}
-      className={`relative h-[62px] w-[102px] shrink-0 overflow-hidden rounded-2xl border px-1 py-1 transition ${
+      className={`relative h-[82px] w-[122px] shrink-0 overflow-hidden rounded-2xl border px-1 py-1 transition ${
         active
           ? "border-sky-400 bg-sky-50 text-sky-700 ring-2 ring-sky-100"
           : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500"
@@ -734,7 +734,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
 
       try {
         const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental } = VF;
-        const width = Math.max(610, 140 + entries.length * 74);
+        const width = Math.max(650, 140 + entries.length * 74);
         const height = 152;
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
@@ -831,7 +831,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
   return (
     <div className="space-y-2">
       <div className="max-w-full overflow-x-auto overflow-y-hidden bg-white px-2 pt-2 pb-1">
-        <div ref={containerRef} className="inline-block min-w-full" />
+        <div ref={containerRef} className="mx-auto w-fit min-w-max" />
       </div>
       {renderError ? <p className="text-sm text-red-600">{renderError}</p> : null}
     </div>
@@ -1412,7 +1412,15 @@ export default function IntervalTrainerPage() {
               <div className="rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm">
                 <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} />
                 <div className="border-t border-zinc-100 px-2 pb-3 pt-1">
-                  <PianoKeyboard onPress={handleKeyboardPress} disabled={exerciseComplete || revealFull} />
+                  {exerciseComplete || revealFull ? (
+                    <div className="mx-auto flex w-full max-w-2xl justify-center pt-4">
+                      <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
+                        <RefreshIcon className="h-4 w-4" /> Siguiente ejercicio
+                      </ActionButton>
+                    </div>
+                  ) : (
+                    <PianoKeyboard onPress={handleKeyboardPress} disabled={false} />
+                  )}
                 </div>
               </div>
 
