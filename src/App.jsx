@@ -925,14 +925,17 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
       try {
         const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental } = VF;
         const availableWidth = Math.max(300, scrollRef.current?.clientWidth ?? 650);
-        const compact = availableWidth < 520;
-        const baseWidth = Math.min(650, Math.max(330, availableWidth - 8));
-        const width = Math.max(baseWidth, 154 + entries.length * (compact ? 74 : 88));
-        const height = compact ? 166 : 174;
+        const compact = availableWidth < 560;
+        const noteCount = Math.max(1, entries.length);
+        const sidePadding = compact ? 112 : 132;
+        const desiredSpacing = Math.floor((availableWidth - sidePadding) / noteCount);
+        const noteSpacing = clamp(desiredSpacing, compact ? 34 : 38, compact ? 66 : 76);
+        const width = Math.max(availableWidth, sidePadding + noteCount * noteSpacing);
+        const height = compact ? 158 : 168;
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
         const context = renderer.getContext();
-        const stave = new Stave(compact ? 12 : 18, compact ? 34 : 38, width - (compact ? 24 : 40));
+        const stave = new Stave(compact ? 8 : 14, compact ? 30 : 34, width - (compact ? 16 : 28));
         stave.addClef(clef.vex);
         stave.setContext(context).draw();
 
@@ -968,7 +971,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         if (typeof voice.setMode === "function" && Voice.Mode) voice.setMode(Voice.Mode.SOFT);
         if (typeof voice.setStrict === "function") voice.setStrict(false);
         voice.addTickables(vexNotes);
-        new Formatter().joinVoices([voice]).format([voice], width - (compact ? 112 : 136));
+        new Formatter().joinVoices([voice]).format([voice], Math.max(190, width - (compact ? 92 : 118)));
         voice.draw(context, stave);
 
         const svg = containerRef.current.querySelector("svg");
@@ -980,8 +983,8 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
 
           if (clef.tag) {
             const tag = document.createElementNS(ns, "text");
-            tag.setAttribute("x", compact ? "46" : "56");
-            tag.setAttribute("y", compact ? "37" : "40");
+            tag.setAttribute("x", compact ? "40" : "50");
+            tag.setAttribute("y", compact ? "33" : "36");
             tag.setAttribute("font-size", compact ? "11" : "13");
             tag.setAttribute("font-weight", "700");
             tag.setAttribute("fill", "#52525b");
@@ -1096,8 +1099,8 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         window.setTimeout(() => {
           updateScrollMetrics();
           const node = scrollRef.current;
-          if (node && node.scrollWidth > node.clientWidth) {
-            const lastNoteX = Math.max(0, Math.min(node.scrollWidth - node.clientWidth, entries.length * (compact ? 74 : 88) - node.clientWidth * 0.45));
+          if (node && node.scrollWidth > node.clientWidth && !compact) {
+            const lastNoteX = Math.max(0, Math.min(node.scrollWidth - node.clientWidth, entries.length * noteSpacing - node.clientWidth * 0.45));
             node.scrollTo({ left: lastNoteX, behavior: "smooth" });
             window.setTimeout(updateScrollMetrics, 250);
           }
@@ -1139,8 +1142,16 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
   const stopTouch = useCallback(() => { touchRef.current.active = false; }, []);
   const progress = scrollMetrics.max > 0 ? Math.min(100, Math.max(0, ((scrollMetrics.left + 1) / scrollMetrics.max) * 100)) : 0;
 
+  const currentClef = getClefConfig(exercise?.clefKey ?? "treble");
+
   return (
-    <div className="mx-auto max-w-2xl space-y-2">
+    <div className="mx-auto w-full max-w-none space-y-2">
+      <div className="relative">
+        {scrollMetrics.max > 4 ? (
+          <div className="pointer-events-none absolute inset-y-1 left-0 z-10 hidden w-12 items-center justify-center rounded-l-xl bg-white/92 text-4xl text-zinc-900 shadow-[8px_0_14px_rgba(255,255,255,0.92)] sm:flex">
+            <span className="-mt-1">{currentClef.symbol}</span>
+          </div>
+        ) : null}
       <div
         ref={scrollRef}
         onScroll={updateScrollMetrics}
@@ -1152,10 +1163,11 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         onTouchMove={handleTouchMove}
         onTouchEnd={stopTouch}
         onTouchCancel={stopTouch}
-        className="max-w-full cursor-grab touch-pan-x overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-xl bg-white px-1 pt-2 pb-1 active:cursor-grabbing sm:px-2"
-        style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin", touchAction: "pan-x" }}
+        className="staff-scroll max-w-full cursor-grab touch-pan-x overflow-x-scroll overflow-y-hidden overscroll-x-contain rounded-xl bg-white px-1 pt-2 pb-2 active:cursor-grabbing sm:px-2"
+        style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin", touchAction: "pan-x", scrollBehavior: "auto" }}
       >
         <div ref={containerRef} className="inline-block min-w-max align-top" />
+      </div>
       </div>
       {scrollMetrics.max > 4 ? (
         <div className="flex items-center gap-2 px-1 sm:hidden">
@@ -1541,7 +1553,7 @@ function TunerPanel({ notes = [], visible = false }) {
   if (!visible || !notes.length) return null;
 
   return (
-    <div className={`mx-auto mt-2 w-full max-w-2xl rounded-2xl border p-2.5 transition ${completedFlash ? "border-emerald-400 bg-emerald-50/90" : inTune ? "border-emerald-300 bg-emerald-50/70" : "border-zinc-200 bg-zinc-50"}`}>
+    <div className={`mx-auto mt-2 w-full max-w-none rounded-2xl border p-2.5 transition ${completedFlash ? "border-emerald-400 bg-emerald-50/90" : inTune ? "border-emerald-300 bg-emerald-50/70" : "border-zinc-200 bg-zinc-50"}`}>
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
           <button type="button" onClick={() => setMode("study")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${mode === "study" ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}>Estudio</button>
@@ -2186,7 +2198,7 @@ export default function IntervalTrainerPage() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-zinc-100 px-3 py-4 pb-56 text-zinc-950 sm:px-6 sm:py-6 sm:pb-44 md:px-10 md:py-10 md:pb-36">
-      <div className="mx-auto max-w-6xl space-y-4 sm:space-y-6">
+      <div className="mx-auto max-w-[1600px] space-y-4 sm:space-y-6">
         <header className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Entrenador de intervalos · Método Aural</h1><div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => setTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button></div></div>
         </header>
@@ -2366,7 +2378,7 @@ export default function IntervalTrainerPage() {
 
       <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-3 py-2 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur sm:px-4 sm:py-3">
         {showProgressPanel ? (
-          <div className="mx-auto mb-2 max-w-6xl rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
+          <div className="mx-auto mb-2 max-w-[1800px] rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Progreso local</p>
@@ -2407,14 +2419,14 @@ export default function IntervalTrainerPage() {
             </div>
           </div>
         ) : null}
-        <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto_auto_auto_auto]">
+        <div className="mx-auto flex max-w-[1800px] flex-nowrap items-stretch gap-2 overflow-x-auto pb-1 sm:pb-0">
           <BottomStat label="Tiempo" value={formatTime(stats.totalSeconds)} />
           <button
             type="button"
             onClick={() => setIsTimerPaused((current) => !current)}
-            className={`inline-flex min-w-[92px] items-center justify-center whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold transition sm:min-w-0 ${isTimerPaused ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
+            className={`inline-flex min-w-[104px] items-center justify-center whitespace-normal rounded-xl border px-3 py-2 text-center text-xs font-semibold leading-tight transition ${isTimerPaused ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
           >
-            {isTimerPaused ? "Reanudar" : "Pausar"}
+            {isTimerPaused ? "Reanudar tiempo" : "Pausar tiempo"}
           </button>
           <BottomStat label="Ejercicios" value={stats.exercises} />
           <BottomStat label="Aciertos" value={stats.correct} />
@@ -2423,30 +2435,30 @@ export default function IntervalTrainerPage() {
           <button
             type="button"
             onClick={() => addTimeMark("Marca manual")}
-            className="inline-flex min-w-[104px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 sm:min-w-0 lg:col-span-1"
+            className="inline-flex min-w-[100px] items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
           >
-            Marcar tiempo
+            <span>Guardar<br />marca</span>
           </button>
           <button
             type="button"
             onClick={() => setShowProgressPanel((current) => !current)}
-            className={`inline-flex min-w-[96px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold transition sm:min-w-0 lg:col-span-1 ${showProgressPanel ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
+            className={`inline-flex min-w-[92px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold transition ${showProgressPanel ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
           >
             Progreso
           </button>
           <button
             type="button"
             onClick={resetScores}
-            className="inline-flex min-w-[118px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 sm:min-w-0 lg:col-span-1"
+            className="inline-flex min-w-[118px] items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
           >
-            <ResetIcon className="h-4 w-4" /> Reiniciar puntaje
+            <ResetIcon className="h-4 w-4 shrink-0" /> <span>Reiniciar<br />puntaje</span>
           </button>
           <button
             type="button"
             onClick={resetEverything}
-            className="inline-flex min-w-[142px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-500 transition hover:border-zinc-400 hover:bg-white sm:min-w-0 lg:col-span-1"
+            className="inline-flex min-w-[118px] items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-500 transition hover:border-zinc-400 hover:bg-white"
           >
-            <ResetIcon className="h-4 w-4" /> Reiniciar parámetros
+            <ResetIcon className="h-4 w-4 shrink-0" /> <span>Reiniciar<br />parámetros</span>
           </button>
         </div>
       </div>
