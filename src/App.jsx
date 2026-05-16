@@ -713,9 +713,14 @@ function nextHarmonicStepAfter(step, exercise, harmonicResponseMode) {
 
 function getExerciseTuningNotes(exercise) {
   if (exercise?.type === "harmonic") {
-    return (exercise.pairs ?? []).flatMap((pair) => [pair.lower, pair.upper]);
+    const tuningNotes = [];
+    (exercise.pairs ?? []).forEach((pair, index) => {
+      if (pair?.lower) tuningNotes.push({ ...pair.lower, tuningRole: `Bajo ${index + 1}` });
+      if (pair?.upper) tuningNotes.push({ ...pair.upper, tuningRole: `Superior ${index + 1}` });
+    });
+    return tuningNotes;
   }
-  return exercise?.sequence ?? [];
+  return (exercise?.sequence ?? []).map((note, index) => ({ ...note, tuningRole: `${index + 1}` }));
 }
 
 function getExerciseIntervalLabels(exercise) {
@@ -1239,9 +1244,11 @@ function TunerPanel({ notes = [], visible = false }) {
       lastPitchAtRef.current = now;
       const previousPitch = smoothedPitchRef.current;
       const intervalFromPrevious = previousPitch ? Math.abs(1200 * Math.log2(pitch / previousPitch)) : Infinity;
-      const nextPitch = previousPitch && intervalFromPrevious < 450
-        ? previousPitch * 0.45 + pitch * 0.55
-        : pitch;
+      let nextPitch = pitch;
+      if (previousPitch && intervalFromPrevious < 450) {
+        const pitchAlpha = intervalFromPrevious < 120 ? 0.18 : intervalFromPrevious < 300 ? 0.28 : 0.42;
+        nextPitch = previousPitch * (1 - pitchAlpha) + pitch * pitchAlpha;
+      }
       smoothedPitchRef.current = nextPitch;
 
       const nearestMidi = frequencyToNearestMidi(nextPitch);
@@ -1255,9 +1262,12 @@ function TunerPanel({ notes = [], visible = false }) {
 
       if (rawCents != null) {
         const previousCents = smoothedCentsRef.current;
-        const nextCents = previousCents == null || Math.abs(rawCents - previousCents) > 55
-          ? rawCents
-          : previousCents * 0.5 + rawCents * 0.5;
+        let nextCents = rawCents;
+        if (previousCents != null) {
+          const centDelta = Math.abs(rawCents - previousCents);
+          const centsAlpha = centDelta < 18 ? 0.10 : centDelta < 40 ? 0.16 : centDelta < 75 ? 0.24 : 0.34;
+          nextCents = previousCents * (1 - centsAlpha) + rawCents * centsAlpha;
+        }
         smoothedCentsRef.current = nextCents;
         const clamped = clamp(nextCents, -50, 50);
         setDetectedHz(nextPitch);
@@ -1308,8 +1318,8 @@ function TunerPanel({ notes = [], visible = false }) {
       });
       const ctx = audioContextRef.current;
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 4096;
-      analyser.smoothingTimeConstant = 0.02;
+      analyser.fftSize = 8192;
+      analyser.smoothingTimeConstant = 0.12;
       const source = ctx.createMediaStreamSource(stream);
       source.connect(analyser);
       streamRef.current = stream;
@@ -1333,6 +1343,7 @@ function TunerPanel({ notes = [], visible = false }) {
   }).join(" ");
   const markerLeft = boundedCents == null ? 50 : 50 + (boundedCents / 50) * 50;
   const activeNoteName = mode === "study" && targetNote ? targetNote.label : detectedLabel;
+  const activeTuningRole = mode === "study" && targetNote?.tuningRole ? targetNote.tuningRole : "";
 
   return (
     <div className={`mx-auto mt-2 w-full max-w-2xl rounded-2xl border p-2.5 transition ${inTune ? "border-emerald-300 bg-emerald-50/70" : "border-zinc-200 bg-zinc-50"}`}>
@@ -1346,9 +1357,12 @@ function TunerPanel({ notes = [], visible = false }) {
         <div className="text-center">
           {mode === "study" ? (
             <div className="flex items-center justify-center gap-2">
-              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); setTargetIndex((i) => Math.max(0, i - 1)); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
-              <div className="min-w-[86px] text-center text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
-              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); setTargetIndex((i) => Math.min(notes.length - 1, i + 1)); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">→</button>
+              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); setTargetIndex((i) => { const next = Math.max(0, i - 1); targetIndexRef.current = next; return next; }); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
+              <div className="min-w-[86px] text-center">
+                <div className="text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
+                {activeTuningRole ? <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">{activeTuningRole}</div> : null}
+              </div>
+              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); setTargetIndex((i) => { const next = Math.min(notes.length - 1, i + 1); targetIndexRef.current = next; return next; }); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">→</button>
             </div>
           ) : (
             <div className="min-w-[86px] text-center text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
@@ -1383,13 +1397,13 @@ function TunerPanel({ notes = [], visible = false }) {
           </svg>
           {boundedCents != null ? (
             <div
-              className={`absolute top-0 h-full w-0.5 shadow-[0_0_10px_rgba(14,165,233,0.55)] transition-transform duration-150 ease-out ${inTune ? "bg-emerald-700" : "bg-sky-500"}`}
+              className={`absolute top-0 h-full w-0.5 shadow-[0_0_10px_rgba(14,165,233,0.55)] transition-[left,background-color] duration-300 ease-out ${inTune ? "bg-emerald-700" : "bg-sky-500"}`}
               style={{ left: `${clamp(markerLeft, 0, 100)}%` }}
             />
           ) : null}
         </div>
         {mode === "study" ? (
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200"><div className="h-full rounded-full bg-emerald-500 transition-[width] duration-150 ease-linear" style={{ width: `${Math.round(holdProgress * 100)}%` }} /></div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200"><div className="h-full rounded-full bg-emerald-500 transition-[width] duration-200 ease-out" style={{ width: `${Math.round(holdProgress * 100)}%` }} /></div>
         ) : null}
       </div>
     </div>
