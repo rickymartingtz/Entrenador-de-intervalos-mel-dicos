@@ -639,36 +639,47 @@ function ClefChip({ clef, active, onClick }) {
 
     try {
       const { Renderer, Stave } = VF;
-      const width = 126;
-      const height = 86;
+      const width = 118;
+      const height = 70;
       const renderer = new Renderer(previewRef.current, Renderer.Backends.SVG);
       renderer.resize(width, height);
       const context = renderer.getContext();
-      const stave = new Stave(8, 22, width - 16);
+      const stave = new Stave(6, 7, width - 12);
       stave.addClef(clef.vex);
       stave.setContext(context).draw();
 
       const svg = previewRef.current.querySelector("svg");
       if (svg) {
+        const accent = active ? "#0369a1" : "#18181b";
         svg.setAttribute("aria-hidden", "true");
         svg.style.width = "100%";
         svg.style.height = "100%";
         svg.style.overflow = "visible";
+        svg.style.transform = "translateY(-6px) scale(0.9)";
+        svg.style.transformOrigin = "center center";
+
+        svg.querySelectorAll("path, rect, line").forEach((node) => {
+          node.setAttribute("stroke", accent);
+          if (node.getAttribute("fill") && node.getAttribute("fill") !== "none") {
+            node.setAttribute("fill", accent);
+          }
+        });
+        svg.querySelectorAll("text").forEach((node) => node.setAttribute("fill", accent));
 
         if (clef.tag) {
           const ns = "http://www.w3.org/2000/svg";
           const tag = document.createElementNS(ns, "text");
-          tag.setAttribute("x", "94");
-          tag.setAttribute("y", clef.tag === "8vb" ? "73" : "20");
-          tag.setAttribute("font-size", "12");
+          tag.setAttribute("x", "95");
+          tag.setAttribute("y", clef.tag === "8vb" ? "58" : "17");
+          tag.setAttribute("font-size", "11");
           tag.setAttribute("font-weight", "700");
-          tag.setAttribute("fill", "currentColor");
+          tag.setAttribute("fill", accent);
           tag.textContent = clef.tag;
           svg.appendChild(tag);
         }
       }
     } catch (error) {
-      previewRef.current.innerHTML = `<div style="font-family:serif;font-size:30px;line-height:64px;text-align:center;">${clef.symbol}${clef.tag ?? ""}</div>`;
+      previewRef.current.innerHTML = `<div style="font-family:serif;font-size:24px;line-height:56px;text-align:center;color:${active ? "#0369a1" : "#18181b"};">${clef.symbol}${clef.tag ?? ""}</div>`;
     }
   }, [clef, active]);
 
@@ -678,17 +689,16 @@ function ClefChip({ clef, active, onClick }) {
       onClick={onClick}
       title={clef.label}
       aria-label={clef.label}
-      className={`relative h-[74px] w-[130px] shrink-0 rounded-2xl border px-2 py-1 transition ${
+      className={`relative h-[62px] w-[102px] shrink-0 overflow-hidden rounded-2xl border px-1 py-1 transition ${
         active
-          ? "border-sky-400 bg-sky-50 text-sky-800 ring-2 ring-sky-100"
+          ? "border-sky-400 bg-sky-50 text-sky-700 ring-2 ring-sky-100"
           : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500"
       }`}
     >
-      <div ref={previewRef} className="h-full w-full" />
+      <div ref={previewRef} className="flex h-full w-full items-center justify-center" />
     </button>
   );
 }
-
 
 function noteY(note, clef) {
   const shift = clef.displayOctaveShift ?? 0;
@@ -716,20 +726,20 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
 
       const clef = getClefConfig(exercise?.clefKey ?? "treble");
       const target = exercise?.sequence ?? [];
-      const entries = revealFull
-        ? target.map((note, index) => ({ note, status: index === 0 ? "start" : "answer" }))
-        : attemptNotes;
+      const entries = attemptNotes.length > 0
+        ? attemptNotes
+        : target.slice(0, 1).map((note) => ({ note, status: "start" }));
 
       if (!entries.length) return;
 
       try {
         const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental } = VF;
-        const width = Math.max(640, 150 + entries.length * 82);
-        const height = 185;
+        const width = Math.max(610, 140 + entries.length * 74);
+        const height = 152;
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
         const context = renderer.getContext();
-        const stave = new Stave(20, 38, width - 45);
+        const stave = new Stave(18, 28, width - 38);
         stave.addClef(clef.vex);
         stave.setContext(context).draw();
 
@@ -756,7 +766,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
         if (typeof voice.setMode === "function" && Voice.Mode) voice.setMode(Voice.Mode.SOFT);
         if (typeof voice.setStrict === "function") voice.setStrict(false);
         voice.addTickables(vexNotes);
-        new Formatter().joinVoices([voice]).format([voice], width - 145);
+        new Formatter().joinVoices([voice]).format([voice], width - 125);
         voice.draw(context, stave);
 
         const svg = containerRef.current.querySelector("svg");
@@ -764,8 +774,8 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
         if (svg) {
           if (clef.tag) {
             const tag = document.createElementNS(ns, "text");
-            tag.setAttribute("x", "58");
-            tag.setAttribute("y", "38");
+            tag.setAttribute("x", "56");
+            tag.setAttribute("y", "30");
             tag.setAttribute("font-size", "13");
             tag.setAttribute("font-weight", "700");
             tag.setAttribute("fill", "#52525b");
@@ -777,16 +787,21 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
             const status = entry.status;
             if (status !== "correct" && status !== "wrong" && status !== "start") return;
             const vexNote = vexNotes[index];
-            const x = typeof vexNote.getAbsoluteX === "function" ? vexNote.getAbsoluteX() : 88 + index * 70;
-            const ys = typeof vexNote.getYs === "function" ? vexNote.getYs() : [90];
-            const y = Array.isArray(ys) && ys.length ? ys[0] : 90;
+            const absoluteX = typeof vexNote.getAbsoluteX === "function" ? vexNote.getAbsoluteX() : 88 + index * 68;
+            const beginX = typeof vexNote.getNoteHeadBeginX === "function" ? vexNote.getNoteHeadBeginX() : null;
+            const endX = typeof vexNote.getNoteHeadEndX === "function" ? vexNote.getNoteHeadEndX() : null;
+            const noteX = typeof beginX === "number" && typeof endX === "number" ? (beginX + endX) / 2 : absoluteX;
+            const ys = typeof vexNote.getYs === "function" ? vexNote.getYs() : [82];
+            const y = Array.isArray(ys) && ys.length ? ys[0] : 82;
 
             if (status === "start") return;
 
             const color = status === "correct" ? "#16a34a" : "#dc2626";
             const mark = document.createElementNS(ns, "text");
-            mark.setAttribute("x", String(x - 7));
-            mark.setAttribute("y", String(y - 24));
+            mark.setAttribute("x", String(noteX));
+            mark.setAttribute("y", String(y - 25));
+            mark.setAttribute("text-anchor", "middle");
+            mark.setAttribute("dominant-baseline", "middle");
             mark.setAttribute("font-size", "19");
             mark.setAttribute("font-weight", "800");
             mark.setAttribute("fill", color);
@@ -794,8 +809,8 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
             svg.appendChild(mark);
 
             const underline = document.createElementNS(ns, "line");
-            underline.setAttribute("x1", String(x - 15));
-            underline.setAttribute("x2", String(x + 15));
+            underline.setAttribute("x1", String(noteX - 15));
+            underline.setAttribute("x2", String(noteX + 15));
             underline.setAttribute("y1", String(y + 21));
             underline.setAttribute("y2", String(y + 21));
             underline.setAttribute("stroke", color);
@@ -814,8 +829,8 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
   }, [attemptNotes, exercise, revealFull]);
 
   return (
-    <div className="space-y-3">
-      <div className="max-w-full overflow-x-auto overflow-y-hidden rounded-2xl border border-zinc-200 bg-white p-3">
+    <div className="space-y-2">
+      <div className="max-w-full overflow-x-auto overflow-y-hidden bg-white px-2 pt-2 pb-1">
         <div ref={containerRef} className="inline-block min-w-full" />
       </div>
       {renderError ? <p className="text-sm text-red-600">{renderError}</p> : null}
@@ -823,13 +838,12 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
   );
 }
 
-
 function PianoKeyboard({ onPress, disabled = false }) {
   const whiteKeys = PIANO_KEYS.filter((key) => key.type === "white");
   const blackKeys = PIANO_KEYS.filter((key) => key.type === "black");
   return (
-    <div className="mx-auto w-full max-w-2xl pt-8">
-      <div className="relative h-36 w-full select-none overflow-visible rounded-b-2xl border border-zinc-300 bg-zinc-200 p-2 shadow-sm">
+    <div className="mx-auto w-full max-w-2xl pt-4">
+      <div className="relative h-32 w-full select-none overflow-visible rounded-b-2xl border border-zinc-300 bg-zinc-200 p-2 shadow-sm">
         <div className="flex h-full gap-1">
           {whiteKeys.map((key) => (
             <button
@@ -849,10 +863,10 @@ function PianoKeyboard({ onPress, disabled = false }) {
             key={key.pc}
             disabled={disabled}
             onClick={() => onPress(key.pc)}
-            className={`absolute top-2 z-10 flex h-20 w-[9.5%] items-start justify-center rounded-b-lg bg-zinc-950 px-1 pt-2 text-center text-[9px] font-semibold leading-tight text-white transition hover:bg-zinc-800 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+            className={`absolute top-2 z-10 flex h-[74px] w-[9.5%] items-start justify-center rounded-b-lg bg-zinc-950 px-1 pt-2 text-center text-[9px] font-semibold leading-tight text-white transition hover:bg-zinc-800 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
             style={{ left: key.left }}
           >
-            <span className="absolute -top-7 left-1/2 w-20 -translate-x-1/2 rounded-full border border-zinc-200 bg-white px-2 py-1 text-[10px] font-semibold leading-none text-zinc-700 shadow-sm">
+            <span className="absolute -top-6 left-1/2 w-20 -translate-x-1/2 rounded-full border border-zinc-200 bg-white px-2 py-1 text-[10px] font-semibold leading-none text-zinc-700 shadow-sm">
               {key.display}
             </span>
           </button>
@@ -861,7 +875,6 @@ function PianoKeyboard({ onPress, disabled = false }) {
     </div>
   );
 }
-
 
 function StatBox({ label, value }) {
   return (
@@ -1189,6 +1202,25 @@ export default function IntervalTrainerPage() {
     }
   }, [expectedNote, revealFull]);
 
+  const handleRevealFullAnswer = useCallback(() => {
+    if (revealFull) return;
+
+    const remainingEntries = exercise.sequence
+      .slice(nextIndex)
+      .map((note) => ({ note, status: "wrong" }));
+
+    if (remainingEntries.length > 0) {
+      setAttemptNotes((current) => [...current, ...remainingEntries]);
+      setNextIndex(exercise.sequence.length);
+      setStats((current) => ({
+        ...current,
+        incorrect: current.incorrect + remainingEntries.length,
+      }));
+    }
+
+    setRevealFull(true);
+  }, [exercise.sequence, nextIndex, revealFull]);
+
   const toggleInterval = useCallback((intervalKey) => {
     setSelectedIntervalKeys((current) => {
       const exists = current.includes(intervalKey);
@@ -1371,21 +1403,17 @@ export default function IntervalTrainerPage() {
                   {isPlaying ? <StopIcon className="h-4 w-4" /> : <VolumeIcon className="h-4 w-4" />}
                   {isPlaying ? "Parar" : "Escuchar"}
                 </ActionButton>
-                <ActionButton active={revealFull} onClick={() => setRevealFull((current) => !current)}>
+                <ActionButton active={revealFull} onClick={handleRevealFullAnswer} disabled={revealFull}>
                   {revealFull ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
-                  {revealFull ? "Ocultar respuesta" : "Mostrar respuesta completa"}
+                  {revealFull ? "Respuesta completa mostrada" : "Mostrar respuesta completa"}
                 </ActionButton>
               </div>
 
-              <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} />
-
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="mb-3 flex flex-wrap items-center gap-3">
-                  <p className="text-sm font-semibold text-zinc-800">
-                    {exerciseComplete ? "Ejercicio completo." : `Siguiente nota: ${nextIndex + 1} de ${exercise.sequence.length}`}
-                  </p>
+              <div className="rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm">
+                <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} />
+                <div className="border-t border-zinc-100 px-2 pb-3 pt-1">
+                  <PianoKeyboard onPress={handleKeyboardPress} disabled={exerciseComplete || revealFull} />
                 </div>
-                <PianoKeyboard onPress={handleKeyboardPress} disabled={exerciseComplete || revealFull} />
               </div>
 
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
