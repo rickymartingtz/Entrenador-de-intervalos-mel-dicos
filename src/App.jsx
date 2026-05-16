@@ -105,6 +105,7 @@ const MIN_TEMPO = 30;
 const MAX_TEMPO = 200;
 const DEFAULT_NOTE_COUNT = 4;
 const DEFAULT_TEMPO = 50;
+const DEFAULT_CHORD_TEMPO = 150;
 const MIN_VOLUME = 0;
 const MAX_VOLUME = 100;
 const DEFAULT_VOLUME = 50;
@@ -1374,6 +1375,31 @@ function getExerciseModelLabels(exercise) {
   }
   return detectModelLabels(exercise?.sequence ?? [], exercise?.intervalKeys ?? []);
 }
+function getPlaybackEventDescriptors(exercise, chordEntryMode = DEFAULT_CHORD_ENTRY_MODE, chordRepeat = DEFAULT_CHORD_REPEAT) {
+  if (exercise?.type === "chords") {
+    const labels = [];
+    (exercise.chords ?? []).forEach((chord, chordIndex) => {
+      const n = chordIndex + 1;
+      if (chordEntryMode === "gradual" && chordIndex === 0) {
+        labels.push({ label: `Acorde ${n}: bajo`, chordIndex, kind: "lower" });
+        if (chordRepeat) labels.push({ label: `Acorde ${n}: bajo · rep.`, chordIndex, kind: "lowerRepeat" });
+        labels.push({ label: `Acorde ${n}: bajo + medio`, chordIndex, kind: "partial" });
+        if (chordRepeat) labels.push({ label: `Acorde ${n}: bajo + medio · rep.`, chordIndex, kind: "partialRepeat" });
+        labels.push({ label: `Acorde ${n}: completo`, chordIndex, kind: "full" });
+        if (chordRepeat) labels.push({ label: `Acorde ${n}: completo · rep.`, chordIndex, kind: "fullRepeat" });
+      } else {
+        labels.push({ label: `Acorde ${n}`, chordIndex, kind: "full" });
+        if (chordRepeat) labels.push({ label: `Acorde ${n} · rep.`, chordIndex, kind: "fullRepeat" });
+      }
+    });
+    return labels;
+  }
+  if (exercise?.type === "harmonic") {
+    return (exercise.pairs ?? []).map((pair, index) => ({ label: `Intervalo ${index + 1}`, pairIndex: index }));
+  }
+  return (exercise?.sequence ?? []).map((note, index) => ({ label: `Nota ${index + 1}`, noteIndex: index }));
+}
+
 function initialSettings() {
   const defaults = {
     noteCount: DEFAULT_NOTE_COUNT,
@@ -2478,6 +2504,7 @@ export default function IntervalTrainerPage() {
   const activeFallbackNodesRef = useRef([]);
   const activePlayersRef = useRef([]);
   const playbackTimeoutRef = useRef(null);
+  const playbackCursorTimeoutsRef = useRef([]);
   const playbackSessionRef = useRef(0);
 
   const [noteCount, setNoteCount] = useState(saved?.noteCount ?? DEFAULT_NOTE_COUNT);
@@ -2524,6 +2551,8 @@ export default function IntervalTrainerPage() {
   const [isTimerPaused, setIsTimerPaused] = useState(false);
   const [showProgressPanel, setShowProgressPanel] = useState(false);
   const [timeMarks, setTimeMarks] = useState(savedMarks);
+  const [playbackStartIndex, setPlaybackStartIndex] = useState(0);
+  const [playbackCursorIndex, setPlaybackCursorIndex] = useState(0);
 
   const selectedInstrument = useMemo(() => INSTRUMENTS.find((item) => item.value === instrument) ?? INSTRUMENTS.find((item) => item.value === DEFAULT_INSTRUMENT), [instrument]);
   const hasSelectedIntervals = selectedIntervalKeys.length > 0;
@@ -2557,12 +2586,25 @@ export default function IntervalTrainerPage() {
   const intervalLabels = useMemo(() => getExerciseIntervalLabels(exercise), [exercise]);
   const modelLabels = useMemo(() => getExerciseModelLabels(exercise), [exercise]);
   const tuningNotes = useMemo(() => getExerciseTuningNotes(exercise), [exercise]);
+  const playbackEvents = useMemo(() => getPlaybackEventDescriptors(exercise, chordEntryMode, chordRepeat), [exercise, chordEntryMode, chordRepeat]);
   const visibleDirectionOptions = useMemo(() => {
     if (isHarmonicMode || isChordMode || useTwelveToneSeries) return [];
     if (noteCount === 2) return SHORT_DIRECTION_OPTIONS.filter((option) => option.key !== "mixed");
     if (noteCount === 3) return SHORT_DIRECTION_OPTIONS;
     return [];
   }, [isChordMode, isHarmonicMode, noteCount, useTwelveToneSeries]);
+
+  useEffect(() => {
+    const maxIndex = Math.max(0, playbackEvents.length - 1);
+    setPlaybackStartIndex((current) => clamp(current, 0, maxIndex));
+    setPlaybackCursorIndex((current) => clamp(current, 0, maxIndex));
+  }, [playbackEvents.length]);
+
+  useEffect(() => {
+    if (trainerMode === "chords" && tempo === DEFAULT_TEMPO) {
+      setTempo(DEFAULT_CHORD_TEMPO);
+    }
+  }, [trainerMode, tempo]);
 
   useEffect(() => {
     if (isTimerPaused) return undefined;
@@ -2652,6 +2694,8 @@ export default function IntervalTrainerPage() {
       window.clearTimeout(playbackTimeoutRef.current);
       playbackTimeoutRef.current = null;
     }
+    playbackCursorTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+    playbackCursorTimeoutsRef.current = [];
     stopAllAudio();
     setIsPlaying(false);
   }, [stopAllAudio]);
@@ -2778,12 +2822,14 @@ export default function IntervalTrainerPage() {
     activeFallbackNodesRef.current.push({ oscillators, gains, filters, masterGain });
   }, []);
 
-  const playExercise = useCallback(async (exerciseToPlay = exercise) => {
+  const playExercise = useCallback(async (exerciseToPlay = exercise, startEventIndex = 0) => {
     const isHarmonic = exerciseToPlay?.type === "harmonic";
     const isChordExercise = exerciseToPlay?.type === "chords";
     const sessionId = playbackSessionRef.current + 1;
     playbackSessionRef.current = sessionId;
     setIsPlaying(true);
+    playbackCursorTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+    playbackCursorTimeoutsRef.current = [];
     stopAllAudio();
 
     try {
@@ -2793,6 +2839,7 @@ export default function IntervalTrainerPage() {
       const chordGapBeats = isChordExercise ? (chordGapMode === "noSilence" ? 0 : 1) : 0;
       const step = isChordExercise ? secondsPerBeat * (chordSoundBeats + chordGapBeats) : secondsPerBeat;
       const baseDuration = isChordExercise ? secondsPerBeat * chordSoundBeats : step * 0.92;
+      const tailSeconds = isChordExercise ? secondsPerBeat * (chordGapMode === "noSilence" ? 0.55 : 1.25) : secondsPerBeat * 0.18;
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
       const instrumentConfigs = isChordExercise
         ? {
@@ -2853,12 +2900,20 @@ export default function IntervalTrainerPage() {
         return;
       }
 
-      events.forEach((eventNotes, index) => {
+      const safeStartIndex = clamp(Number(startEventIndex) || 0, 0, Math.max(0, events.length - 1));
+      const scheduledEvents = events.slice(safeStartIndex);
+      setPlaybackStartIndex(safeStartIndex);
+      setPlaybackCursorIndex(safeStartIndex);
+      playbackCursorTimeoutsRef.current = scheduledEvents.map((_, index) => window.setTimeout(() => {
+        if (sessionId === playbackSessionRef.current) setPlaybackCursorIndex(safeStartIndex + index);
+      }, Math.max(0, index * step * 1000)));
+
+      scheduledEvents.forEach((eventNotes, index) => {
         const start = baseTime + index * step;
         eventNotes.forEach(({ note, instrument: instrumentConfig }) => {
           const config = instrumentConfig ?? selectedInstrument;
           const sfInstrument = sfMap.get(config.value);
-          const duration = config?.sustain ? Math.max(0.24, baseDuration * 1.01) : Math.max(0.2, baseDuration * (isChordExercise ? 0.995 : 1));
+          const duration = config?.sustain ? Math.max(0.24, baseDuration + tailSeconds) : Math.max(0.2, baseDuration + tailSeconds * 0.85);
           if (sfInstrument) {
             const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
             activePlayersRef.current.push(player);
@@ -2874,7 +2929,7 @@ export default function IntervalTrainerPage() {
           setIsPlaying(false);
           playbackTimeoutRef.current = null;
         }
-      }, events.length * step * 1000 + 550);
+      }, scheduledEvents.length * step * 1000 + tailSeconds * 1000 + 750);
     } catch (error) {
       console.error("Error al reproducir:", error);
       if (sessionId === playbackSessionRef.current) setIsPlaying(false);
@@ -2917,7 +2972,7 @@ export default function IntervalTrainerPage() {
       items.forEach((item, index) => {
         const note = item.note;
         const config = configs[index] ?? selectedInstrument;
-        const duration = config?.sustain ? 1.15 : 0.95;
+        const duration = isChordPreview ? chordPreviewDuration : (config?.sustain ? 1.15 : 0.95);
         const sfInstrument = sfMap.get(config.value);
         if (sfInstrument) {
           const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
@@ -2929,7 +2984,7 @@ export default function IntervalTrainerPage() {
     } catch (error) {
       console.error("Error al reproducir la nota:", error);
     }
-  }, [chordBassInstrument, chordMiddleInstrument, chordUpperInstrument, createFallbackVoice, ensureAudioContext, getSoundfontInstrument, selectedInstrument, stopAllAudio, volume]);
+  }, [chordBassInstrument, chordMiddleInstrument, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, selectedInstrument, stopAllAudio, tempo, volume]);
 
   const startExercise = useCallback(() => {
     if (!canGenerate) return;
@@ -2949,6 +3004,8 @@ export default function IntervalTrainerPage() {
     setHarmonicStep(firstHarmonicStep(nextExercise, harmonicResponseMode));
     setChordStep(firstChordStep(nextExercise));
     setRevealFull(false);
+    setPlaybackStartIndex(0);
+    setPlaybackCursorIndex(0);
     setStats((current) => ({ ...current, exercises: current.exercises + 1 }));
     setButtonFlash(true);
     window.setTimeout(() => setButtonFlash(false), 420);
@@ -3367,6 +3424,41 @@ export default function IntervalTrainerPage() {
                   </ActionButton>
                 ) : null}
               </div>
+
+              {playbackEvents.length > 1 ? (
+                <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 shadow-sm sm:px-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Línea de reproducción</p>
+                      <p className="text-sm font-semibold text-zinc-800">{playbackEvents[isPlaying ? playbackCursorIndex : playbackStartIndex]?.label ?? 'Inicio'}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => playExercise(exercise, playbackStartIndex)}
+                      className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
+                    >
+                      Escuchar desde aquí
+                    </button>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(0, playbackEvents.length - 1)}
+                    step={1}
+                    value={isPlaying ? playbackCursorIndex : playbackStartIndex}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      setPlaybackStartIndex(value);
+                      setPlaybackCursorIndex(value);
+                    }}
+                    className="mt-3 w-full accent-zinc-900"
+                  />
+                  <div className="mt-1 flex justify-between text-[10px] text-zinc-500">
+                    <span>1</span>
+                    <span>{playbackEvents.length}</span>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="min-w-0 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-sm sm:p-2">
                 <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} onNotePress={playSingleNote} />
