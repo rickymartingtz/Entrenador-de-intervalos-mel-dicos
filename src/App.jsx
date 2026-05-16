@@ -114,6 +114,7 @@ const SHORT_DIRECTION_OPTIONS = [
 ];
 const SETTINGS_KEY = "intervalTrainer.settings.v11";
 const STATS_KEY = "intervalTrainer.stats.v11";
+const MARKS_KEY = "intervalTrainer.marks.v12";
 const SOUNDFONT_LIBRARY = "MusyngKite";
 const SOUNDFONT_BASE_URL = "https://gleitz.github.io/midi-js-soundfonts";
 const PITCH_HISTORY_LEN = 200;
@@ -122,6 +123,8 @@ const IN_TUNE_THRESHOLD = 10;
 const TUNER_HOLD_OPTIONS = [0.5, 1, 1.5, 2, 3, 4];
 const TUNER_MICRO_GAP_MS = 300;
 const TUNER_COMPLETE_DELAY_MS = 560;
+const TUNER_ANALYSIS_INTERVAL_MS = 40;
+const TUNER_YIN_THRESHOLD = 0.13;
 const PITCH_SMOOTH_ALPHA = 0.35;
 
 const CLEFS = [
@@ -774,6 +777,28 @@ function initialStats() {
   }
 }
 
+function initialMarks() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(MARKS_KEY) || "[]");
+    return Array.isArray(stored) ? stored.slice(0, 80) : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatDateTime(timestamp) {
+  try {
+    return new Intl.DateTimeFormat("es-MX", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(timestamp));
+  } catch {
+    return "—";
+  }
+}
+
 function formatTime(seconds) {
   const safe = Math.max(0, Math.floor(seconds));
   const hrs = Math.floor(safe / 3600);
@@ -1420,7 +1445,7 @@ function TunerPanel({ notes = [], visible = false }) {
 
     const buffer = new Float32Array(analyser.fftSize);
     analyser.getFloatTimeDomainData(buffer);
-    const freq = autoCorrelatePitch(buffer, ctx.sampleRate, 0.15);
+    const freq = autoCorrelatePitch(buffer, ctx.sampleRate, TUNER_YIN_THRESHOLD);
     const now = performance.now();
     const activeMode = modeRef.current;
     const list = notesRef.current ?? [];
@@ -1506,7 +1531,7 @@ function TunerPanel({ notes = [], visible = false }) {
       setIsListening(true);
       lastDetectionAtRef.current = null;
       if (timerRef.current) window.clearInterval(timerRef.current);
-      timerRef.current = window.setInterval(analyse, 50);
+      timerRef.current = window.setInterval(analyse, TUNER_ANALYSIS_INTERVAL_MS);
     } catch (error) {
       console.error("No se pudo iniciar el afinador:", error);
       setIsListening(false);
@@ -1645,6 +1670,7 @@ function BottomStat({ label, value }) {
 export default function IntervalTrainerPage() {
   const saved = useMemo(() => (typeof window !== "undefined" ? initialSettings() : null), []);
   const savedStats = useMemo(() => (typeof window !== "undefined" ? initialStats() : null), []);
+  const savedMarks = useMemo(() => (typeof window !== "undefined" ? initialMarks() : []), []);
   const audioContextRef = useRef(null);
   const soundfontCacheRef = useRef(new Map());
   const activeFallbackNodesRef = useRef([]);
@@ -1681,6 +1707,9 @@ export default function IntervalTrainerPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [buttonFlash, setButtonFlash] = useState(false);
   const [stats, setStats] = useState(savedStats ?? { totalSeconds: 0, exercises: 0, correct: 0, incorrect: 0 });
+  const [isTimerPaused, setIsTimerPaused] = useState(false);
+  const [showProgressPanel, setShowProgressPanel] = useState(false);
+  const [timeMarks, setTimeMarks] = useState(savedMarks);
 
   const selectedInstrument = useMemo(() => INSTRUMENTS.find((item) => item.value === instrument) ?? INSTRUMENTS.find((item) => item.value === DEFAULT_INSTRUMENT), [instrument]);
   const hasSelectedIntervals = selectedIntervalKeys.length > 0;
@@ -1703,11 +1732,12 @@ export default function IntervalTrainerPage() {
   }, [isHarmonicMode, noteCount, useTwelveToneSeries]);
 
   useEffect(() => {
+    if (isTimerPaused) return undefined;
     const timer = window.setInterval(() => {
       setStats((current) => ({ ...current, totalSeconds: current.totalSeconds + 1 }));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [isTimerPaused]);
 
   useEffect(() => {
     try {
@@ -1731,6 +1761,12 @@ export default function IntervalTrainerPage() {
       window.localStorage.setItem(STATS_KEY, JSON.stringify(stats));
     } catch {}
   }, [stats]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(MARKS_KEY, JSON.stringify(timeMarks));
+    } catch {}
+  }, [timeMarks]);
 
   useEffect(() => {
     if (useTwelveToneSeries) {
@@ -2067,6 +2103,34 @@ export default function IntervalTrainerPage() {
   const selectAllClefs = useCallback(() => setSelectedClefKeys(CLEFS.map((item) => item.key)), []);
   const deselectAllClefs = useCallback(() => setSelectedClefKeys([]), []);
 
+  const addTimeMark = useCallback((label = "Marca de estudio") => {
+    setTimeMarks((current) => {
+      const nextMark = {
+        id: `${Date.now()}-${Math.random()}`,
+        label,
+        timestamp: Date.now(),
+        totalSeconds: stats.totalSeconds,
+        exercises: stats.exercises,
+        correct: stats.correct,
+        incorrect: stats.incorrect,
+        score: scoreFromStats(stats),
+        trainerMode,
+        noteCount: safeNoteCount,
+        tempo,
+        instrument,
+        intervals: selectedIntervalKeys,
+        clefs: selectedClefKeys,
+      };
+      return [nextMark, ...current].slice(0, 80);
+    });
+    setShowProgressPanel(true);
+  }, [instrument, noteCount, safeNoteCount, selectedClefKeys, selectedIntervalKeys, stats, tempo, trainerMode]);
+
+  const clearTimeMarks = useCallback(() => {
+    setTimeMarks([]);
+    try { window.localStorage.removeItem(MARKS_KEY); } catch {}
+  }, []);
+
   const resetScores = useCallback(() => {
     setStats({ totalSeconds: 0, exercises: 0, correct: 0, incorrect: 0 });
     try {
@@ -2092,10 +2156,8 @@ export default function IntervalTrainerPage() {
     setNextIndex(1);
     setHarmonicStep(firstHarmonicStep(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
     setRevealFull(false);
-    setStats({ totalSeconds: 0, exercises: 0, correct: 0, incorrect: 0 });
     try {
       window.localStorage.removeItem(SETTINGS_KEY);
-      window.localStorage.removeItem(STATS_KEY);
     } catch {}
   }, [stopPlayback]);
 
@@ -2303,12 +2365,75 @@ export default function IntervalTrainerPage() {
       </div>
 
       <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-3 py-2 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur sm:px-4 sm:py-3">
-        <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto_auto]">
+        {showProgressPanel ? (
+          <div className="mx-auto mb-2 max-w-6xl rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Progreso local</p>
+                <p className="text-sm text-zinc-600">Datos guardados en este ordenador o teléfono.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => addTimeMark("Marca manual")} className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100">Marcar tiempo</button>
+                <button type="button" onClick={clearTimeMarks} className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-500 transition hover:bg-white">Borrar marcas</button>
+                <button type="button" onClick={() => setShowProgressPanel(false)} className="rounded-xl border border-zinc-900 bg-zinc-900 px-3 py-2 text-xs font-semibold text-white">Cerrar</button>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-5">
+              <BottomStat label="Tiempo" value={formatTime(stats.totalSeconds)} />
+              <BottomStat label="Ejercicios" value={stats.exercises} />
+              <BottomStat label="Aciertos" value={stats.correct} />
+              <BottomStat label="Errores" value={stats.incorrect} />
+              <BottomStat label="Puntuación" value={`${score}/100`} />
+            </div>
+            <div className="mt-3 max-h-40 space-y-2 overflow-y-auto pr-1">
+              {timeMarks.length > 0 ? timeMarks.map((mark) => (
+                <div key={mark.id} className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold text-zinc-900">{mark.label}</span>
+                    <span className="text-zinc-500">{formatDateTime(mark.timestamp)}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-zinc-600">
+                    <span>Tiempo: {formatTime(mark.totalSeconds)}</span>
+                    <span>Ejercicios: {mark.exercises}</span>
+                    <span>Aciertos: {mark.correct}</span>
+                    <span>Errores: {mark.incorrect}</span>
+                    <span>Puntuación: {mark.score}/100</span>
+                    <span>Modo: {mark.trainerMode === "harmonic" ? "Armónicos" : "Melódicos"}</span>
+                  </div>
+                </div>
+              )) : (
+                <p className="rounded-xl border border-dashed border-zinc-200 p-3 text-xs text-zinc-500">Todavía no hay marcas de tiempo. Usa “Marcar tiempo” para guardar un corte de tu sesión.</p>
+              )}
+            </div>
+          </div>
+        ) : null}
+        <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto_auto_auto_auto]">
           <BottomStat label="Tiempo" value={formatTime(stats.totalSeconds)} />
+          <button
+            type="button"
+            onClick={() => setIsTimerPaused((current) => !current)}
+            className={`inline-flex min-w-[92px] items-center justify-center whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold transition sm:min-w-0 ${isTimerPaused ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
+          >
+            {isTimerPaused ? "Reanudar" : "Pausar"}
+          </button>
           <BottomStat label="Ejercicios" value={stats.exercises} />
           <BottomStat label="Aciertos" value={stats.correct} />
           <BottomStat label="Errores" value={stats.incorrect} />
           <BottomStat label="Puntuación" value={`${score}/100`} />
+          <button
+            type="button"
+            onClick={() => addTimeMark("Marca manual")}
+            className="inline-flex min-w-[104px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 sm:min-w-0 lg:col-span-1"
+          >
+            Marcar tiempo
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowProgressPanel((current) => !current)}
+            className={`inline-flex min-w-[96px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold transition sm:min-w-0 lg:col-span-1 ${showProgressPanel ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
+          >
+            Progreso
+          </button>
           <button
             type="button"
             onClick={resetScores}
