@@ -268,75 +268,74 @@ function formatDetectedPitch(frequency) {
 }
 
 function autoCorrelatePitch(buffer, sampleRate) {
-  // Robust autocorrelation tuned for sung voice.
-  // Returns null when the input is too quiet/noisy instead of guessing.
-  let rms = 0;
+  // YIN-style pitch detector. More stable for sung voice than a plain peak search.
   let mean = 0;
   for (let i = 0; i < buffer.length; i += 1) mean += buffer[i];
   mean /= buffer.length || 1;
 
   const data = new Float32Array(buffer.length);
+  let rms = 0;
   for (let i = 0; i < buffer.length; i += 1) {
     const value = buffer[i] - mean;
     data[i] = value;
     rms += value * value;
   }
   rms = Math.sqrt(rms / data.length);
-  if (rms < 0.006) return null;
+  if (rms < 0.0045) return null;
 
-  const minFrequency = 55;
-  const maxFrequency = 1400;
-  const minLag = Math.max(2, Math.floor(sampleRate / maxFrequency));
-  const maxLag = Math.min(Math.floor(sampleRate / minFrequency), Math.floor(data.length * 0.75));
-  let bestLag = -1;
-  let bestCorrelation = -1;
+  const minFrequency = 65;
+  const maxFrequency = 1200;
+  const tauMin = Math.max(2, Math.floor(sampleRate / maxFrequency));
+  const tauMax = Math.min(Math.floor(sampleRate / minFrequency), Math.floor(data.length / 2));
+  const difference = new Float32Array(tauMax + 1);
+  const cumulative = new Float32Array(tauMax + 1);
 
-  for (let lag = minLag; lag <= maxLag; lag += 1) {
+  for (let tau = tauMin; tau <= tauMax; tau += 1) {
     let sum = 0;
-    let energyA = 0;
-    let energyB = 0;
-    for (let i = 0; i < data.length - lag; i += 1) {
-      const a = data[i];
-      const b = data[i + lag];
-      sum += a * b;
-      energyA += a * a;
-      energyB += b * b;
+    const limit = data.length - tau;
+    for (let i = 0; i < limit; i += 1) {
+      const delta = data[i] - data[i + tau];
+      sum += delta * delta;
     }
-    const denom = Math.sqrt(energyA * energyB);
-    if (denom <= 0) continue;
-    const correlation = sum / denom;
-    if (correlation > bestCorrelation) {
-      bestCorrelation = correlation;
-      bestLag = lag;
+    difference[tau] = sum;
+  }
+
+  let runningSum = 0;
+  cumulative[0] = 1;
+  for (let tau = 1; tau <= tauMax; tau += 1) {
+    runningSum += difference[tau];
+    cumulative[tau] = runningSum > 0 ? difference[tau] * tau / runningSum : 1;
+  }
+
+  let bestTau = -1;
+  const threshold = 0.14;
+  for (let tau = tauMin; tau <= tauMax; tau += 1) {
+    if (cumulative[tau] < threshold) {
+      while (tau + 1 <= tauMax && cumulative[tau + 1] < cumulative[tau]) tau += 1;
+      bestTau = tau;
+      break;
     }
   }
 
-  if (bestLag <= 0 || bestCorrelation < 0.56) return null;
-
-  const corrAt = (lag) => {
-    if (lag < minLag || lag > maxLag) return bestCorrelation;
-    let sum = 0;
-    let energyA = 0;
-    let energyB = 0;
-    for (let i = 0; i < data.length - lag; i += 1) {
-      const a = data[i];
-      const b = data[i + lag];
-      sum += a * b;
-      energyA += a * a;
-      energyB += b * b;
+  if (bestTau < 0) {
+    let minValue = Infinity;
+    for (let tau = tauMin; tau <= tauMax; tau += 1) {
+      if (cumulative[tau] < minValue) {
+        minValue = cumulative[tau];
+        bestTau = tau;
+      }
     }
-    const denom = Math.sqrt(energyA * energyB);
-    return denom > 0 ? sum / denom : 0;
-  };
-  const left = corrAt(bestLag - 1);
-  const center = bestCorrelation;
-  const right = corrAt(bestLag + 1);
-  const divisor = left - 2 * center + right;
-  const adjustment = Math.abs(divisor) > 1e-6 ? 0.5 * (left - right) / divisor : 0;
-  const refinedLag = bestLag + clamp(adjustment, -0.5, 0.5);
-  return sampleRate / refinedLag;
-}
+    if (bestTau < 0 || minValue > 0.32) return null;
+  }
 
+  const y0 = cumulative[bestTau - 1] ?? cumulative[bestTau];
+  const y1 = cumulative[bestTau];
+  const y2 = cumulative[bestTau + 1] ?? cumulative[bestTau];
+  const denom = y0 - 2 * y1 + y2;
+  const betterTau = Math.abs(denom) > 1e-8 ? bestTau + 0.5 * (y0 - y2) / denom : bestTau;
+  const frequency = sampleRate / betterTau;
+  return Number.isFinite(frequency) && frequency > 0 ? frequency : null;
+}
 function pitchClassOf(noteOrMidi) {
   const midi = typeof noteOrMidi === "number" ? noteOrMidi : noteOrMidi?.midi;
   return ((midi % 12) + 12) % 12;
@@ -994,15 +993,17 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
               mark.setAttribute("fill", color);
               mark.textContent = status === "correct" ? "✓" : "×";
               svg.appendChild(mark);
-              const underline = document.createElementNS(ns, "line");
-              underline.setAttribute("x1", String(noteX - 15));
-              underline.setAttribute("x2", String(noteX + 15));
-              underline.setAttribute("y1", String(placement === "below" ? y + 19 : y + 21));
-              underline.setAttribute("y2", String(placement === "below" ? y + 19 : y + 21));
-              underline.setAttribute("stroke", color);
-              underline.setAttribute("stroke-width", "3");
-              underline.setAttribute("stroke-linecap", "round");
-              svg.appendChild(underline);
+              if (!isHarmonic) {
+                const underline = document.createElementNS(ns, "line");
+                underline.setAttribute("x1", String(noteX - 15));
+                underline.setAttribute("x2", String(noteX + 15));
+                underline.setAttribute("y1", String(y + 21));
+                underline.setAttribute("y2", String(y + 21));
+                underline.setAttribute("stroke", color);
+                underline.setAttribute("stroke-width", "3");
+                underline.setAttribute("stroke-linecap", "round");
+                svg.appendChild(underline);
+              }
             };
 
             const addNoteHitArea = (note, y) => {
@@ -1029,11 +1030,32 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
               addNoteHitArea(entry.note, y);
             } else {
               const group = noteGroups[index];
+              const groupYs = [];
               group.forEach((item, groupIndex) => {
                 const y = ys[groupIndex] ?? ys[0] ?? 92;
+                groupYs.push(y);
                 drawMark(item.status, y, item.role === "lower" ? "below" : "above");
-                addNoteHitArea(item.note, y);
               });
+              const groupNotes = group.map((item) => item.note).filter(Boolean);
+              if (typeof onNotePress === "function" && groupNotes.length) {
+                const minY = Math.min(...groupYs, 58);
+                const maxY = Math.max(...groupYs, 112);
+                const hit = document.createElementNS(ns, "rect");
+                hit.setAttribute("x", String(noteX - 28));
+                hit.setAttribute("y", String(minY - 38));
+                hit.setAttribute("width", "56");
+                hit.setAttribute("height", String(Math.max(76, maxY - minY + 76)));
+                hit.setAttribute("fill", "transparent");
+                hit.setAttribute("stroke", "none");
+                hit.setAttribute("style", "cursor:pointer; outline:none;");
+                hit.setAttribute("aria-label", "Escuchar intervalo armónico");
+                hit.addEventListener("click", (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onNotePress(groupNotes);
+                });
+                svg.appendChild(hit);
+              }
             }
           });
         }
@@ -1120,11 +1142,16 @@ function TunerPanel({ notes = [], visible = false }) {
   const sourceRef = useRef(null);
   const streamRef = useRef(null);
   const rafRef = useRef(null);
-  const lastUiUpdateRef = useRef(0);
+  const lastPitchAtRef = useRef(0);
   const smoothedPitchRef = useRef(null);
   const smoothedCentsRef = useRef(null);
   const holdStartRef = useRef(null);
+  const outOfTuneSinceRef = useRef(null);
   const completedRef = useRef(new Set());
+  const modeRef = useRef("study");
+  const targetIndexRef = useRef(0);
+  const notesRef = useRef(notes);
+  const holdSecondsRef = useRef(2);
 
   const [isListening, setIsListening] = useState(false);
   const [mode, setMode] = useState("study");
@@ -1138,10 +1165,34 @@ function TunerPanel({ notes = [], visible = false }) {
   const [message, setMessage] = useState("Activa el micrófono y canta la nota marcada.");
 
   const targetNote = notes[targetIndex] ?? null;
-  const targetFreq = targetNote ? midiToFreq(targetNote.midi) : null;
   const tolerance = 10;
   const boundedCents = Number.isFinite(cents) ? clamp(cents, -50, 50) : null;
-  const inTune = Number.isFinite(cents) && Math.abs(cents) <= tolerance;
+  const inTune = Number.isFinite(cents) && Math.abs(cents) <= tolerance && (mode !== "study" || !targetNote || pitchClassOf(frequencyToNearestMidi(detectedHz ?? 0)) === pitchClassOf(targetNote));
+
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { targetIndexRef.current = targetIndex; }, [targetIndex]);
+  useEffect(() => { notesRef.current = notes; }, [notes]);
+  useEffect(() => { holdSecondsRef.current = holdSeconds; }, [holdSeconds]);
+
+  const resetTunerState = useCallback(() => {
+    setTargetIndex(0);
+    targetIndexRef.current = 0;
+    setDetectedHz(null);
+    setDetectedLabel("—");
+    setCents(null);
+    setTrail([]);
+    setHoldProgress(0);
+    setMessage("Activa el micrófono y canta la nota marcada.");
+    completedRef.current = new Set();
+    smoothedPitchRef.current = null;
+    smoothedCentsRef.current = null;
+    holdStartRef.current = null;
+    outOfTuneSinceRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    resetTunerState();
+  }, [notes, resetTunerState]);
 
   const stopListening = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -1153,123 +1204,139 @@ function TunerPanel({ notes = [], visible = false }) {
     analyserRef.current = null;
     setIsListening(false);
     holdStartRef.current = null;
+    outOfTuneSinceRef.current = null;
     setHoldProgress(0);
   }, []);
 
-  const resetTunerState = useCallback(() => {
-    setTargetIndex(0);
-    setDetectedHz(null);
-    setDetectedLabel("—");
-    setCents(null);
-    setTrail([]);
-    setHoldProgress(0);
-    setMessage("Activa el micrófono y canta la nota marcada.");
-    completedRef.current = new Set();
-    smoothedPitchRef.current = null;
-    smoothedCentsRef.current = null;
-    holdStartRef.current = null;
-  }, []);
-
-  useEffect(() => { resetTunerState(); }, [notes, resetTunerState]);
   useEffect(() => () => stopListening(), [stopListening]);
 
   const advanceTarget = useCallback(() => {
-    if (!notes.length) return;
-    completedRef.current.add(targetIndex);
-    if (targetIndex < notes.length - 1) {
-      setTargetIndex((current) => Math.min(notes.length - 1, current + 1));
-      setMessage("Afinada. Pasa a la siguiente nota.");
-    } else {
-      setMessage("Serie cantada completa.");
-    }
+    const list = notesRef.current ?? [];
+    completedRef.current.add(targetIndexRef.current);
+    setTargetIndex((current) => {
+      const next = current < list.length - 1 ? current + 1 : current;
+      targetIndexRef.current = next;
+      setMessage(current < list.length - 1 ? "Afinada. Pasa a la siguiente nota." : "Serie cantada completa.");
+      return next;
+    });
     setTrail([]);
     setHoldProgress(0);
     holdStartRef.current = null;
-  }, [notes.length, targetIndex]);
+    outOfTuneSinceRef.current = null;
+    smoothedCentsRef.current = null;
+  }, []);
 
   const analyse = useCallback(() => {
     const analyser = analyserRef.current;
     const ctx = audioContextRef.current;
     if (!analyser || !ctx) return;
+
     const buffer = new Float32Array(analyser.fftSize);
     analyser.getFloatTimeDomainData(buffer);
     const pitch = autoCorrelatePitch(buffer, ctx.sampleRate);
     const now = performance.now();
 
-    if (pitch && now - lastUiUpdateRef.current > 70) {
+    if (pitch) {
+      lastPitchAtRef.current = now;
       const previousPitch = smoothedPitchRef.current;
-      const nextPitch = previousPitch && Math.abs(1200 * Math.log2(pitch / previousPitch)) < 500
-        ? previousPitch * 0.72 + pitch * 0.28
+      const intervalFromPrevious = previousPitch ? Math.abs(1200 * Math.log2(pitch / previousPitch)) : Infinity;
+      const nextPitch = previousPitch && intervalFromPrevious < 250
+        ? previousPitch * 0.55 + pitch * 0.45
         : pitch;
       smoothedPitchRef.current = nextPitch;
 
       const nearestMidi = frequencyToNearestMidi(nextPitch);
       const label = midiToSimpleNote(nearestMidi).label;
-      const rawCents = mode === "free"
-        ? centsOffFromNearestChromatic(nextPitch)
-        : (targetNote ? centsOffFromPitchClass(nextPitch, targetNote.midi) : null);
+      const activeMode = modeRef.current;
+      const list = notesRef.current ?? [];
+      const activeTarget = list[targetIndexRef.current] ?? null;
+      const rawCents = activeMode === "study" && activeTarget
+        ? centsOffFromPitchClass(nextPitch, activeTarget.midi)
+        : centsOffFromNearestChromatic(nextPitch);
+
       if (rawCents != null) {
         const previousCents = smoothedCentsRef.current;
-        const nextCents = previousCents == null || Math.abs(rawCents - previousCents) > 80
+        const nextCents = previousCents == null || Math.abs(rawCents - previousCents) > 45
           ? rawCents
-          : previousCents * 0.7 + rawCents * 0.3;
+          : previousCents * 0.42 + rawCents * 0.58;
         smoothedCentsRef.current = nextCents;
         const clamped = clamp(nextCents, -50, 50);
         setDetectedHz(nextPitch);
         setDetectedLabel(label);
         setCents(nextCents);
-        setTrail((current) => [...current.slice(-115), { cents: clamped, t: now }]);
+        setTrail((current) => [...current.slice(-150), { cents: clamped, t: now }]);
 
-        if (mode === "study" && targetNote) {
-          if (Math.abs(nextCents) <= tolerance && pitchClassOf(nearestMidi) === pitchClassOf(targetNote)) {
+        if (activeMode === "study" && activeTarget) {
+          const samePitchClass = pitchClassOf(nearestMidi) === pitchClassOf(activeTarget);
+          const centered = samePitchClass && Math.abs(nextCents) <= tolerance;
+          if (centered) {
+            outOfTuneSinceRef.current = null;
             if (holdStartRef.current == null) holdStartRef.current = now;
-            const progress = Math.min(1, (now - holdStartRef.current) / (holdSeconds * 1000));
+            const progress = Math.min(1, (now - holdStartRef.current) / (holdSecondsRef.current * 1000));
             setHoldProgress(progress);
             setMessage("Dentro del centro. Sostén la nota.");
             if (progress >= 1) advanceTarget();
           } else {
-            holdStartRef.current = null;
-            setHoldProgress(0);
-            if (pitchClassOf(nearestMidi) !== pitchClassOf(targetNote)) {
-              setMessage(`Detecto ${label}. Busca ${targetNote.label} en cualquier octava.`);
+            if (outOfTuneSinceRef.current == null) outOfTuneSinceRef.current = now;
+            if (now - outOfTuneSinceRef.current > 350) {
+              holdStartRef.current = null;
+              setHoldProgress(0);
+            }
+            if (!samePitchClass) {
+              setMessage(`Detecto ${label}. Busca ${activeTarget.label} en cualquier octava.`);
             } else {
               setMessage(nextCents < 0 ? "Estás bajo." : "Estás alto.");
             }
           }
         } else {
+          holdStartRef.current = null;
+          outOfTuneSinceRef.current = null;
           setHoldProgress(0);
           setMessage("Modo libre: reconoce cualquier nota cromática que cantes.");
         }
       }
-      lastUiUpdateRef.current = now;
+    } else if (holdStartRef.current && now - lastPitchAtRef.current > 500) {
+      holdStartRef.current = null;
+      outOfTuneSinceRef.current = null;
+      setHoldProgress(0);
     }
+
     rafRef.current = requestAnimationFrame(analyse);
-  }, [advanceTarget, holdSeconds, mode, targetNote]);
+  }, [advanceTarget]);
 
   const startListening = useCallback(async () => {
+    if (isListening && analyserRef.current) return;
     try {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (!audioContextRef.current) audioContextRef.current = new AudioContextClass();
       if (audioContextRef.current.state === "suspended") await audioContextRef.current.resume();
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: 1,
+        }
+      });
       const ctx = audioContextRef.current;
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 8192;
-      analyser.smoothingTimeConstant = 0.05;
+      analyser.fftSize = 4096;
+      analyser.smoothingTimeConstant = 0;
       const source = ctx.createMediaStreamSource(stream);
       source.connect(analyser);
       streamRef.current = stream;
       sourceRef.current = source;
       analyserRef.current = analyser;
       setIsListening(true);
-      setMessage(mode === "study" ? "Canta y sostén la nota dentro del centro verde." : "Canta cualquier nota.");
+      setMessage(modeRef.current === "study" ? "Canta y sostén la nota dentro del centro verde." : "Canta cualquier nota.");
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(analyse);
     } catch (error) {
       console.error("No se pudo iniciar el afinador:", error);
       setMessage("No se pudo activar el micrófono. Revisa permisos del navegador.");
       setIsListening(false);
     }
-  }, [analyse, mode]);
+  }, [analyse, isListening]);
 
   if (!visible || !notes.length) return null;
 
@@ -1279,14 +1346,15 @@ function TunerPanel({ notes = [], visible = false }) {
     return `${x},${clamp(y, 8, 72)}`;
   }).join(" ");
   const markerLeft = boundedCents == null ? 50 : 50 + (boundedCents / 50) * 50;
+  const activeNoteName = mode === "study" && targetNote ? targetNote.label : detectedLabel;
 
   return (
-    <div className={`mx-auto mt-4 w-full max-w-2xl rounded-2xl border p-3 transition sm:p-4 ${inTune ? "border-emerald-300 bg-emerald-50/60" : "border-zinc-200 bg-zinc-50"}`}>
+    <div className={`mx-auto mt-4 w-full max-w-2xl rounded-2xl border p-3 transition sm:p-4 ${inTune ? "border-emerald-300 bg-emerald-50/70" : "border-zinc-200 bg-zinc-50"}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-zinc-800">Afinador</p>
           <p className="text-xs text-zinc-500">
-            {mode === "study" && targetNote ? `Objetivo: ${targetNote.label} en cualquier octava · margen ±${tolerance} cents` : "Modo libre: detección cromática"}
+            {mode === "study" && targetNote ? `Objetivo: ${targetNote.label} en cualquier octava · centro ±${tolerance} cents` : "Modo libre: detección cromática ±50 cents"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1303,9 +1371,9 @@ function TunerPanel({ notes = [], visible = false }) {
         </div>
       ) : null}
 
-      <div className={`mt-3 rounded-xl border bg-white p-3 transition ${inTune ? "border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.16)]" : "border-zinc-200"}`}>
+      <div className={`mt-3 rounded-xl border bg-white p-3 transition ${inTune ? "border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]" : "border-zinc-200"}`}>
         <div className="mb-2 flex items-center justify-between text-xs text-zinc-500">
-          <span>{detectedHz ? `${detectedLabel} · ${detectedHz.toFixed(1)} Hz` : "Escuchando…"}</span>
+          <span>{detectedHz ? `${activeNoteName} · ${detectedHz.toFixed(1)} Hz` : "Escuchando…"}</span>
           <span>{Number.isFinite(cents) ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents` : "—"}</span>
         </div>
         <div className="relative h-20 overflow-hidden rounded-lg border border-zinc-200 bg-gradient-to-r from-rose-100 via-emerald-100 to-rose-100">
@@ -1337,13 +1405,12 @@ function TunerPanel({ notes = [], visible = false }) {
               <button type="button" onClick={() => setHoldSeconds((s) => clamp(s + 0.5, 0.5, 5))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">+</button>
             </>
           ) : null}
-          {isListening ? <button type="button" onClick={stopListening} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">Detener</button> : <button type="button" onClick={startListening} className="rounded-full border border-zinc-950 bg-zinc-950 px-3 py-1 text-xs font-semibold text-white">Activar micrófono</button>}
+          {isListening ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Micrófono activo</span> : <button type="button" onClick={startListening} className="rounded-full border border-zinc-950 bg-zinc-950 px-3 py-1 text-xs font-semibold text-white">Activar micrófono</button>}
         </div>
       </div>
     </div>
   );
 }
-
 function PianoKeyboard({ onPress, disabled = false }) {
   const whiteKeys = PIANO_KEYS.filter((key) => key.type === "white");
   const blackKeys = PIANO_KEYS.filter((key) => key.type === "black");
@@ -1699,8 +1766,9 @@ export default function IntervalTrainerPage() {
     }
   }, [createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, selectedInstrument, stopAllAudio, tempo, volume]);
 
-  const playSingleNote = useCallback(async (note) => {
-    if (!note) return;
+  const playSingleNote = useCallback(async (noteOrNotes) => {
+    const notesToPlay = Array.isArray(noteOrNotes) ? noteOrNotes.filter(Boolean) : [noteOrNotes].filter(Boolean);
+    if (!notesToPlay.length) return;
     const sessionId = playbackSessionRef.current + 1;
     playbackSessionRef.current = sessionId;
     stopAllAudio();
@@ -1717,12 +1785,14 @@ export default function IntervalTrainerPage() {
         console.warn("No se pudo cargar SoundFont para nota aislada. Usando síntesis interna.", error);
       }
       if (sessionId !== playbackSessionRef.current) return;
-      if (sfInstrument) {
-        const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
-        activePlayersRef.current.push(player);
-      } else {
-        createFallbackVoice(ctx, midiToFreq(note.midi), selectedInstrument?.fallback ?? "piano", start, duration, volume);
-      }
+      notesToPlay.forEach((note) => {
+        if (sfInstrument) {
+          const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
+          activePlayersRef.current.push(player);
+        } else {
+          createFallbackVoice(ctx, midiToFreq(note.midi), selectedInstrument?.fallback ?? "piano", start, duration, volume);
+        }
+      });
     } catch (error) {
       console.error("Error al reproducir la nota:", error);
     }
@@ -2017,14 +2087,12 @@ export default function IntervalTrainerPage() {
               <div className="rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-sm sm:p-2">
                 <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} onNotePress={playSingleNote} />
                 <div className="border-t border-zinc-100 px-2 pb-3 pt-1">
+                  <TunerPanel notes={getExerciseTuningNotes(exercise)} visible={exerciseComplete || revealFull} />
                   {exerciseComplete || revealFull ? (
-                    <div className="space-y-3">
-                      <TunerPanel notes={getExerciseTuningNotes(exercise)} visible={exerciseComplete || revealFull} />
-                      <div className="mx-auto flex w-full max-w-2xl justify-center pt-1">
-                        <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
-                          <RefreshIcon className="h-4 w-4" /> Siguiente ejercicio
-                        </ActionButton>
-                      </div>
+                    <div className="mx-auto flex w-full max-w-2xl justify-center pt-3">
+                      <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
+                        <RefreshIcon className="h-4 w-4" /> Siguiente ejercicio
+                      </ActionButton>
                     </div>
                   ) : (
                     <PianoKeyboard onPress={handleKeyboardPress} disabled={false} />
@@ -2034,16 +2102,18 @@ export default function IntervalTrainerPage() {
 
               {exerciseComplete || revealFull ? (
                 <div className="mt-4 grid gap-3 sm:gap-4 lg:grid-cols-2">
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
-                    <p className="text-sm font-medium text-zinc-500">Modelos reconocibles en la sucesión</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {modelLabels.length > 0 ? (
-                        modelLabels.map((label) => <Badge key={label}>{label}</Badge>)
-                      ) : (
-                        <span className="text-xs text-zinc-500">Sin modelo reconocible en esta sucesión.</span>
-                      )}
+                  {!isHarmonicMode ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
+                      <p className="text-sm font-medium text-zinc-500">Modelos reconocibles en la sucesión</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {modelLabels.length > 0 ? (
+                          modelLabels.map((label) => <Badge key={label}>{label}</Badge>)
+                        ) : (
+                          <span className="text-xs text-zinc-500">Sin modelo reconocible en esta sucesión.</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
 
                   <div className="rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
                     <p className="text-sm font-medium text-zinc-500">Saltos entre notas consecutivas</p>
