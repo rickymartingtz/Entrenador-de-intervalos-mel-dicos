@@ -139,16 +139,20 @@ const TUNER_ANALYSIS_INTERVAL_MS = 40;
 const TUNER_YIN_THRESHOLD = 0.13;
 const PITCH_SMOOTH_ALPHA = 0.35;
 
+// Registros reales en notación científica: Do central = C4 = MIDI 60.
+// Las claves normales no transponen el sonido. Las claves 8va/15ma/8vb sí
+// usan un registro sonoro desplazado, pero se escriben en el pentagrama base
+// mediante displayOctaveShift para que lo visual y lo auditivo correspondan.
 const CLEFS = [
-  { key: "treble", label: "Clave de Sol", symbol: "𝄞", tag: "", vex: "treble", minMidi: 60, maxMidi: 88, centerMinMidi: 65, centerMaxMidi: 79, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
-  { key: "treble8va", label: "Clave de Sol 8va alta", symbol: "𝄞", tag: "8va", clefAnnotation: "8va", vex: "treble", displayOctaveShift: -1, minMidi: 72, maxMidi: 100, centerMinMidi: 77, centerMaxMidi: 91, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
-  { key: "treble15ma", label: "Clave de Sol 15ma alta", symbol: "𝄞", tag: "15ma", clefAnnotation: "15ma", vex: "treble", displayOctaveShift: -2, minMidi: 84, maxMidi: 108, centerMinMidi: 84, centerMaxMidi: 100, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
-  { key: "soprano", label: "Clave de Do en I", symbol: "𝄡", tag: "I", vex: "soprano", minMidi: 57, maxMidi: 81, centerMinMidi: 62, centerMaxMidi: 74, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 100 },
-  { key: "mezzo", label: "Clave de Do en II", symbol: "𝄡", tag: "II", vex: "mezzo-soprano", minMidi: 55, maxMidi: 79, centerMinMidi: 60, centerMaxMidi: 72, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 86 },
-  { key: "alto", label: "Clave de Do en III", symbol: "𝄡", tag: "III", vex: "alto", minMidi: 53, maxMidi: 77, centerMinMidi: 58, centerMaxMidi: 70, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 72 },
-  { key: "tenor", label: "Clave de Do en IV", symbol: "𝄡", tag: "IV", vex: "tenor", minMidi: 48, maxMidi: 72, centerMinMidi: 53, centerMaxMidi: 65, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 58 },
-  { key: "bass", label: "Clave de Fa", symbol: "𝄢", tag: "", vex: "bass", minMidi: 40, maxMidi: 67, centerMinMidi: 45, centerMaxMidi: 58, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
-  { key: "bass8vb", label: "Clave de Fa 8va baja", symbol: "𝄢", tag: "8vb", clefAnnotation: "8vb", vex: "bass", displayOctaveShift: 1, minMidi: 28, maxMidi: 55, centerMinMidi: 33, centerMaxMidi: 46, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
+  { key: "treble", label: "Clave de Sol", symbol: "𝄞", tag: "", vex: "treble", minMidi: 55, maxMidi: 84, centerMinMidi: 60, centerMaxMidi: 76, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
+  { key: "treble8va", label: "Clave de Sol 8va alta", symbol: "𝄞", tag: "8va", clefAnnotation: "8va", vex: "treble", displayOctaveShift: -1, minMidi: 67, maxMidi: 96, centerMinMidi: 72, centerMaxMidi: 88, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
+  { key: "treble15ma", label: "Clave de Sol 15ma alta", symbol: "𝄞", tag: "15ma", clefAnnotation: "15ma", vex: "treble", displayOctaveShift: -2, minMidi: 79, maxMidi: 108, centerMinMidi: 84, centerMaxMidi: 100, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
+  { key: "soprano", label: "Clave de Do en I", symbol: "𝄡", tag: "I", vex: "soprano", minMidi: 60, maxMidi: 84, centerMinMidi: 64, centerMaxMidi: 76, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 100 },
+  { key: "mezzo", label: "Clave de Do en II", symbol: "𝄡", tag: "II", vex: "mezzo-soprano", minMidi: 57, maxMidi: 81, centerMinMidi: 60, centerMaxMidi: 72, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 86 },
+  { key: "alto", label: "Clave de Do en III", symbol: "𝄡", tag: "III", vex: "alto", minMidi: 53, maxMidi: 77, centerMinMidi: 57, centerMaxMidi: 69, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 72 },
+  { key: "tenor", label: "Clave de Do en IV", symbol: "𝄡", tag: "IV", vex: "tenor", minMidi: 48, maxMidi: 72, centerMinMidi: 52, centerMaxMidi: 64, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 58 },
+  { key: "bass", label: "Clave de Fa", symbol: "𝄢", tag: "", vex: "bass", minMidi: 36, maxMidi: 64, centerMinMidi: 40, centerMaxMidi: 55, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
+  { key: "bass8vb", label: "Clave de Fa 8va baja", symbol: "𝄢", tag: "8vb", clefAnnotation: "8vb", vex: "bass", displayOctaveShift: 1, minMidi: 24, maxMidi: 52, centerMinMidi: 28, centerMaxMidi: 43, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
 ];
 
 const INTERVAL_DEFINITIONS = [
