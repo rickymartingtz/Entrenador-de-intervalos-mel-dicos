@@ -116,6 +116,10 @@ const SETTINGS_KEY = "intervalTrainer.settings.v11";
 const STATS_KEY = "intervalTrainer.stats.v11";
 const SOUNDFONT_LIBRARY = "MusyngKite";
 const SOUNDFONT_BASE_URL = "https://gleitz.github.io/midi-js-soundfonts";
+const PITCH_HISTORY_LEN = 200;
+const TUNER_RANGE_CENTS = 50;
+const IN_TUNE_THRESHOLD = 8;
+const PITCH_SMOOTH_ALPHA = 0.35;
 
 const CLEFS = [
   { key: "treble", label: "Clave de Sol", symbol: "𝄞", tag: "", vex: "treble", minMidi: 60, maxMidi: 88, centerMinMidi: 65, centerMaxMidi: 79, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
@@ -267,73 +271,52 @@ function formatDetectedPitch(frequency) {
   return `${midiToSimpleNote(midi).label} · ${frequency.toFixed(1)} Hz`;
 }
 
-function autoCorrelatePitch(buffer, sampleRate) {
-  // YIN-style pitch detector. More stable for sung voice than a plain peak search.
-  let mean = 0;
-  for (let i = 0; i < buffer.length; i += 1) mean += buffer[i];
-  mean /= buffer.length || 1;
-
-  const data = new Float32Array(buffer.length);
+function autoCorrelatePitch(buffer, sampleRate, threshold = 0.15) {
   let rms = 0;
-  for (let i = 0; i < buffer.length; i += 1) {
-    const value = buffer[i] - mean;
-    data[i] = value;
-    rms += value * value;
-  }
-  rms = Math.sqrt(rms / data.length);
-  if (rms < 0.0045) return null;
+  for (let i = 0; i < buffer.length; i += 1) rms += buffer[i] * buffer[i];
+  rms = Math.sqrt(rms / buffer.length);
+  if (rms < 0.008) return null;
 
-  const minFrequency = 65;
-  const maxFrequency = 1200;
-  const tauMin = Math.max(2, Math.floor(sampleRate / maxFrequency));
-  const tauMax = Math.min(Math.floor(sampleRate / minFrequency), Math.floor(data.length / 2));
-  const difference = new Float32Array(tauMax + 1);
-  const cumulative = new Float32Array(tauMax + 1);
+  const halfLen = Math.floor(buffer.length / 2);
+  const yinBuffer = new Float32Array(halfLen);
 
-  for (let tau = tauMin; tau <= tauMax; tau += 1) {
+  for (let tau = 0; tau < halfLen; tau += 1) {
     let sum = 0;
-    const limit = data.length - tau;
-    for (let i = 0; i < limit; i += 1) {
-      const delta = data[i] - data[i + tau];
+    for (let i = 0; i < halfLen; i += 1) {
+      const delta = buffer[i] - buffer[i + tau];
       sum += delta * delta;
     }
-    difference[tau] = sum;
+    yinBuffer[tau] = sum;
   }
 
+  yinBuffer[0] = 1;
   let runningSum = 0;
-  cumulative[0] = 1;
-  for (let tau = 1; tau <= tauMax; tau += 1) {
-    runningSum += difference[tau];
-    cumulative[tau] = runningSum > 0 ? difference[tau] * tau / runningSum : 1;
+  for (let tau = 1; tau < halfLen; tau += 1) {
+    runningSum += yinBuffer[tau];
+    yinBuffer[tau] = runningSum > 0 ? yinBuffer[tau] * tau / runningSum : 1;
   }
 
-  let bestTau = -1;
-  const threshold = 0.14;
-  for (let tau = tauMin; tau <= tauMax; tau += 1) {
-    if (cumulative[tau] < threshold) {
-      while (tau + 1 <= tauMax && cumulative[tau + 1] < cumulative[tau]) tau += 1;
-      bestTau = tau;
+  let tauEstimate = -1;
+  for (let tau = 2; tau < halfLen; tau += 1) {
+    if (yinBuffer[tau] < threshold) {
+      while (tau + 1 < halfLen && yinBuffer[tau + 1] < yinBuffer[tau]) tau += 1;
+      tauEstimate = tau;
       break;
     }
   }
 
-  if (bestTau < 0) {
-    let minValue = Infinity;
-    for (let tau = tauMin; tau <= tauMax; tau += 1) {
-      if (cumulative[tau] < minValue) {
-        minValue = cumulative[tau];
-        bestTau = tau;
-      }
-    }
-    if (bestTau < 0 || minValue > 0.32) return null;
+  if (tauEstimate === -1) return null;
+
+  let refined = tauEstimate;
+  if (tauEstimate > 0 && tauEstimate < halfLen - 1) {
+    const y0 = yinBuffer[tauEstimate - 1];
+    const y1 = yinBuffer[tauEstimate];
+    const y2 = yinBuffer[tauEstimate + 1];
+    const denom = y0 + y2 - 2 * y1;
+    if (denom !== 0) refined = tauEstimate + (y0 - y2) / (2 * denom);
   }
 
-  const y0 = cumulative[bestTau - 1] ?? cumulative[bestTau];
-  const y1 = cumulative[bestTau];
-  const y2 = cumulative[bestTau + 1] ?? cumulative[bestTau];
-  const denom = y0 - 2 * y1 + y2;
-  const betterTau = Math.abs(denom) > 1e-8 ? bestTau + 0.5 * (y0 - y2) / denom : bestTau;
-  const frequency = sampleRate / betterTau;
+  const frequency = sampleRate / refined;
   return Number.isFinite(frequency) && frequency > 0 ? frequency : null;
 }
 function pitchClassOf(noteOrMidi) {
@@ -1018,11 +1001,18 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
               hit.setAttribute("y", String(y - 34));
               hit.setAttribute("width", "48");
               hit.setAttribute("height", "68");
-              hit.setAttribute("fill", "transparent");
+              hit.setAttribute("fill", "rgba(0,0,0,0.001)");
               hit.setAttribute("stroke", "none");
-              hit.setAttribute("opacity", "0");
-              hit.setAttribute("style", "cursor:pointer;");
+              hit.setAttribute("opacity", "0.001");
+              hit.setAttribute("pointer-events", "all");
+              hit.setAttribute("style", "cursor:pointer; pointer-events:all;");
               hit.setAttribute("aria-label", `Escuchar ${note.label}`);
+              hit.addEventListener("pointerdown", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              });
+              hit.addEventListener("mousedown", (event) => event.stopPropagation());
+              hit.addEventListener("touchstart", (event) => event.stopPropagation(), { passive: true });
               hit.addEventListener("click", (event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -1052,11 +1042,18 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
                 hit.setAttribute("y", String(minY - 38));
                 hit.setAttribute("width", "56");
                 hit.setAttribute("height", String(Math.max(76, maxY - minY + 76)));
-                hit.setAttribute("fill", "transparent");
+                hit.setAttribute("fill", "rgba(0,0,0,0.001)");
                 hit.setAttribute("stroke", "none");
-                hit.setAttribute("opacity", "0");
-                hit.setAttribute("style", "cursor:pointer; outline:none;");
+                hit.setAttribute("opacity", "0.001");
+                hit.setAttribute("pointer-events", "all");
+                hit.setAttribute("style", "cursor:pointer; outline:none; pointer-events:all;");
                 hit.setAttribute("aria-label", "Escuchar intervalo armónico");
+                hit.addEventListener("pointerdown", (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                });
+                hit.addEventListener("mousedown", (event) => event.stopPropagation());
+                hit.addEventListener("touchstart", (event) => event.stopPropagation(), { passive: true });
                 hit.addEventListener("click", (event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -1144,15 +1141,135 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
   );
 }
 
+function TunerStrip({ cents, label, sublabel, micEnabled, active, centerFreq, pitchHistoryRef, pitchHistoryIdxRef, compact = false, holdProgress = 0 }) {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(1, rect.width);
+    const h = Math.max(1, rect.height);
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+    }
+
+    ctx.clearRect(0, 0, w, h);
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, h);
+    gradient.addColorStop(0, "rgba(244,63,94,0.10)");
+    gradient.addColorStop(0.34, "rgba(244,63,94,0.04)");
+    gradient.addColorStop(0.45, "rgba(16,185,129,0.12)");
+    gradient.addColorStop(0.50, "rgba(16,185,129,0.26)");
+    gradient.addColorStop(0.55, "rgba(16,185,129,0.12)");
+    gradient.addColorStop(0.66, "rgba(244,63,94,0.04)");
+    gradient.addColorStop(1, "rgba(244,63,94,0.10)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = "rgba(5,150,105,0.42)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2);
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
+
+    const inTunePx = (IN_TUNE_THRESHOLD / TUNER_RANGE_CENTS) * (h / 2 - 4);
+    ctx.strokeStyle = "rgba(5,150,105,0.24)";
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2 - inTunePx);
+    ctx.lineTo(w, h / 2 - inTunePx);
+    ctx.moveTo(0, h / 2 + inTunePx);
+    ctx.lineTo(w, h / 2 + inTunePx);
+    ctx.stroke();
+
+    if (active && centerFreq && pitchHistoryRef?.current) {
+      const buf = pitchHistoryRef.current;
+      const len = buf.length;
+      const idx = pitchHistoryIdxRef.current;
+      let drawing = false;
+      let lastWasInTune = false;
+      for (let i = 0; i < len; i += 1) {
+        const j = (idx + i) % len;
+        const frequency = buf[j];
+        if (!Number.isFinite(frequency) || frequency <= 0) {
+          if (drawing) ctx.stroke();
+          drawing = false;
+          continue;
+        }
+        const rawCents = 1200 * Math.log2(frequency / centerFreq);
+        const clamped = clamp(rawCents, -TUNER_RANGE_CENTS, TUNER_RANGE_CENTS);
+        const x = (i / Math.max(1, len - 1)) * w;
+        const y = h / 2 - (clamped / TUNER_RANGE_CENTS) * (h / 2 - 4);
+        const isInTune = Math.abs(rawCents) < IN_TUNE_THRESHOLD;
+        if (!drawing) {
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.strokeStyle = isInTune ? "#047857" : "#0f172a";
+          ctx.lineWidth = isInTune ? 2 : 1.6;
+          drawing = true;
+        } else if (isInTune !== lastWasInTune) {
+          ctx.lineTo(x, y);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.strokeStyle = isInTune ? "#047857" : "#0f172a";
+          ctx.lineWidth = isInTune ? 2 : 1.6;
+        } else {
+          ctx.lineTo(x, y);
+        }
+        lastWasInTune = isInTune;
+      }
+      if (drawing) ctx.stroke();
+    }
+  }, [active, centerFreq, cents, micEnabled, pitchHistoryIdxRef, pitchHistoryRef]);
+
+  const valid = cents !== null && cents !== undefined && !Number.isNaN(cents);
+  const clamped = valid ? clamp(cents, -TUNER_RANGE_CENTS, TUNER_RANGE_CENTS) : 0;
+  const linePct = 50 + (clamped / TUNER_RANGE_CENTS) * 50;
+  const inTune = valid && Math.abs(cents) < IN_TUNE_THRESHOLD;
+
+  return (
+    <div className={`rounded-xl border bg-white p-2 transition ${inTune ? "border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]" : "border-zinc-200"}`}>
+      <div className="mb-1 flex items-baseline justify-between gap-3">
+        <div className="min-w-0">
+          <p className={`truncate font-semibold leading-none ${compact ? "text-xl" : "text-2xl"} ${valid || micEnabled ? "text-zinc-950" : "text-zinc-400"}`}>{label || "—"}</p>
+          {sublabel ? <p className="mt-1 truncate text-[10px] font-medium text-zinc-500">{sublabel}</p> : null}
+        </div>
+        <p className={`shrink-0 text-xs font-semibold tabular-nums ${inTune ? "text-emerald-700" : valid ? "text-zinc-500" : "text-zinc-300"}`}>{valid ? `${cents >= 0 ? "+" : ""}${cents.toFixed(1)}¢` : "—"}</p>
+      </div>
+
+      <div className="relative h-12 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50">
+        <canvas ref={canvasRef} className="block h-full w-full" />
+        <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-zinc-900/45" />
+        {valid ? (
+          <div
+            className={`pointer-events-none absolute top-0 h-full w-0.5 transition-[left,background-color] duration-75 ease-linear ${inTune ? "bg-emerald-700 shadow-[0_0_8px_rgba(4,120,87,0.45)]" : "bg-sky-500"}`}
+            style={{ left: `${clamp(linePct, 0, 100)}%` }}
+          />
+        ) : null}
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200">
+        <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-100 ease-linear" style={{ width: `${Math.round(holdProgress * 100)}%` }} />
+      </div>
+    </div>
+  );
+}
+
 function TunerPanel({ notes = [], visible = false }) {
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const sourceRef = useRef(null);
   const streamRef = useRef(null);
-  const rafRef = useRef(null);
-  const lastPitchAtRef = useRef(0);
-  const smoothedPitchRef = useRef(null);
-  const smoothedCentsRef = useRef(null);
+  const timerRef = useRef(null);
+  const smoothedFreqRef = useRef(null);
+  const pitchHistoryRef = useRef(new Float32Array(PITCH_HISTORY_LEN).fill(NaN));
+  const pitchHistoryIdxRef = useRef(0);
   const accumulatedHoldMsRef = useRef(0);
   const lastCenteredAtRef = useRef(null);
   const completedRef = useRef(new Set());
@@ -1167,15 +1284,16 @@ function TunerPanel({ notes = [], visible = false }) {
   const [detectedHz, setDetectedHz] = useState(null);
   const [detectedLabel, setDetectedLabel] = useState("—");
   const [cents, setCents] = useState(null);
-  const [trail, setTrail] = useState([]);
   const [holdSeconds, setHoldSeconds] = useState(2);
   const [holdProgress, setHoldProgress] = useState(0);
+  const [centerMidi, setCenterMidi] = useState(null);
 
   const targetNote = notes[targetIndex] ?? null;
-  const tolerance = 10;
-  const boundedCents = Number.isFinite(cents) ? clamp(cents, -50, 50) : null;
+  const centerFreq = centerMidi != null ? midiToFreq(centerMidi) : null;
   const detectedMidi = detectedHz ? frequencyToNearestMidi(detectedHz) : null;
-  const inTune = Number.isFinite(cents) && Math.abs(cents) <= tolerance && (mode !== "study" || !targetNote || pitchClassOf(detectedMidi) === pitchClassOf(targetNote));
+  const inTune = Number.isFinite(cents) && Math.abs(cents) < IN_TUNE_THRESHOLD && (mode !== "study" || !targetNote || pitchClassOf(detectedMidi) === pitchClassOf(targetNote));
+  const activeNoteName = mode === "study" && targetNote ? targetNote.label : detectedLabel;
+  const activeTuningRole = mode === "study" && targetNote?.tuningRole ? targetNote.tuningRole : "";
 
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { targetIndexRef.current = targetIndex; }, [targetIndex]);
@@ -1188,22 +1306,21 @@ function TunerPanel({ notes = [], visible = false }) {
     setDetectedHz(null);
     setDetectedLabel("—");
     setCents(null);
-    setTrail([]);
     setHoldProgress(0);
+    setCenterMidi(null);
     completedRef.current = new Set();
-    smoothedPitchRef.current = null;
-    smoothedCentsRef.current = null;
+    smoothedFreqRef.current = null;
     accumulatedHoldMsRef.current = 0;
     lastCenteredAtRef.current = null;
+    pitchHistoryRef.current.fill(NaN);
+    pitchHistoryIdxRef.current = 0;
   }, []);
 
-  useEffect(() => {
-    resetTunerState();
-  }, [notes, resetTunerState]);
+  useEffect(() => { resetTunerState(); }, [notes, resetTunerState]);
 
   const stopListening = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
+    if (timerRef.current) window.clearInterval(timerRef.current);
+    timerRef.current = null;
     try { sourceRef.current?.disconnect(); } catch {}
     try { streamRef.current?.getTracks()?.forEach((track) => track.stop()); } catch {}
     sourceRef.current = null;
@@ -1223,11 +1340,11 @@ function TunerPanel({ notes = [], visible = false }) {
       targetIndexRef.current = next;
       return next;
     });
-    setTrail([]);
     setHoldProgress(0);
     accumulatedHoldMsRef.current = 0;
     lastCenteredAtRef.current = null;
-    smoothedCentsRef.current = null;
+    pitchHistoryRef.current.fill(NaN);
+    pitchHistoryIdxRef.current = 0;
   }, []);
 
   const analyse = useCallback(() => {
@@ -1237,69 +1354,73 @@ function TunerPanel({ notes = [], visible = false }) {
 
     const buffer = new Float32Array(analyser.fftSize);
     analyser.getFloatTimeDomainData(buffer);
-    const pitch = autoCorrelatePitch(buffer, ctx.sampleRate);
+    const rawFreq = autoCorrelatePitch(buffer, ctx.sampleRate, 0.15);
     const now = performance.now();
 
-    if (pitch) {
-      lastPitchAtRef.current = now;
-      const previousPitch = smoothedPitchRef.current;
-      const intervalFromPrevious = previousPitch ? Math.abs(1200 * Math.log2(pitch / previousPitch)) : Infinity;
-      let nextPitch = pitch;
-      if (previousPitch && intervalFromPrevious < 450) {
-        const pitchAlpha = intervalFromPrevious < 120 ? 0.42 : intervalFromPrevious < 300 ? 0.56 : 0.74;
-        nextPitch = previousPitch * (1 - pitchAlpha) + pitch * pitchAlpha;
+    let freq = null;
+    if (rawFreq) {
+      if (smoothedFreqRef.current === null) smoothedFreqRef.current = rawFreq;
+      else {
+        const centsJump = Math.abs(1200 * Math.log2(rawFreq / smoothedFreqRef.current));
+        if (centsJump > 50) smoothedFreqRef.current = rawFreq;
+        else smoothedFreqRef.current = smoothedFreqRef.current * (1 - PITCH_SMOOTH_ALPHA) + rawFreq * PITCH_SMOOTH_ALPHA;
       }
-      smoothedPitchRef.current = nextPitch;
+      freq = smoothedFreqRef.current;
+    } else {
+      smoothedFreqRef.current = null;
+    }
 
-      const nearestMidi = frequencyToNearestMidi(nextPitch);
-      const label = midiToSimpleNote(nearestMidi).label;
-      const activeMode = modeRef.current;
-      const list = notesRef.current ?? [];
-      const activeTarget = list[targetIndexRef.current] ?? null;
-      const rawCents = activeMode === "study" && activeTarget
-        ? centsOffFromPitchClass(nextPitch, activeTarget.midi)
-        : centsOffFromNearestChromatic(nextPitch);
+    pitchHistoryRef.current[pitchHistoryIdxRef.current] = freq || NaN;
+    pitchHistoryIdxRef.current = (pitchHistoryIdxRef.current + 1) % PITCH_HISTORY_LEN;
 
-      if (rawCents != null) {
-        const previousCents = smoothedCentsRef.current;
-        let nextCents = rawCents;
-        if (previousCents != null) {
-          const centDelta = Math.abs(rawCents - previousCents);
-          const centsAlpha = centDelta < 18 ? 0.34 : centDelta < 40 ? 0.46 : centDelta < 75 ? 0.62 : 0.78;
-          nextCents = previousCents * (1 - centsAlpha) + rawCents * centsAlpha;
-        }
-        smoothedCentsRef.current = nextCents;
-        const clamped = clamp(nextCents, -50, 50);
-        setDetectedHz(nextPitch);
-        setDetectedLabel(label);
-        setCents(nextCents);
-        setTrail((current) => [...current.slice(-120), { cents: clamped, t: now }]);
+    if (!freq) {
+      lastCenteredAtRef.current = null;
+      setDetectedHz(null);
+      setCents(null);
+      return;
+    }
 
-        if (activeMode === "study" && activeTarget) {
-          const samePitchClass = pitchClassOf(nearestMidi) === pitchClassOf(activeTarget);
-          const centered = samePitchClass && Math.abs(nextCents) <= tolerance;
-          if (centered) {
-            const last = lastCenteredAtRef.current;
-            const delta = last ? Math.min(180, Math.max(0, now - last)) : 0;
-            accumulatedHoldMsRef.current += delta;
-            lastCenteredAtRef.current = now;
-            const progress = Math.min(1, accumulatedHoldMsRef.current / (holdSecondsRef.current * 1000));
-            setHoldProgress(progress);
-            if (progress >= 1) advanceTarget();
-          } else {
-            lastCenteredAtRef.current = null;
-            setHoldProgress(Math.min(1, accumulatedHoldMsRef.current / (holdSecondsRef.current * 1000)));
-          }
-        } else {
-          lastCenteredAtRef.current = null;
-          setHoldProgress(0);
-        }
+    const nearestMidi = frequencyToNearestMidi(freq);
+    const activeMode = modeRef.current;
+    const list = notesRef.current ?? [];
+    const activeTarget = list[targetIndexRef.current] ?? null;
+    let rawCents = null;
+    let displayMidi = nearestMidi;
+
+    if (activeMode === "study" && activeTarget) {
+      rawCents = centsOffFromPitchClass(freq, activeTarget.midi);
+      displayMidi = nearestMidiForPitchClass(pitchClassOf(activeTarget), nearestMidi);
+    } else {
+      rawCents = centsOffFromNearestChromatic(freq);
+      displayMidi = nearestMidi;
+    }
+
+    if (rawCents == null) return;
+
+    setDetectedHz(freq);
+    setDetectedLabel(midiToSimpleNote(nearestMidi).label);
+    setCents(rawCents);
+    setCenterMidi(displayMidi);
+
+    if (activeMode === "study" && activeTarget) {
+      const samePitchClass = pitchClassOf(nearestMidi) === pitchClassOf(activeTarget);
+      const centered = samePitchClass && Math.abs(rawCents) < IN_TUNE_THRESHOLD;
+      if (centered) {
+        const last = lastCenteredAtRef.current;
+        const delta = last ? Math.min(90, Math.max(0, now - last)) : 0;
+        accumulatedHoldMsRef.current += delta;
+        lastCenteredAtRef.current = now;
+        const progress = Math.min(1, accumulatedHoldMsRef.current / (holdSecondsRef.current * 1000));
+        setHoldProgress(progress);
+        if (progress >= 1) advanceTarget();
+      } else {
+        lastCenteredAtRef.current = null;
+        setHoldProgress(Math.min(1, accumulatedHoldMsRef.current / (holdSecondsRef.current * 1000)));
       }
     } else {
       lastCenteredAtRef.current = null;
+      setHoldProgress(0);
     }
-
-    rafRef.current = requestAnimationFrame(analyse);
   }, [advanceTarget]);
 
   const startListening = useCallback(async () => {
@@ -1309,25 +1430,20 @@ function TunerPanel({ notes = [], visible = false }) {
       if (!audioContextRef.current) audioContextRef.current = new AudioContextClass();
       if (audioContextRef.current.state === "suspended") await audioContextRef.current.resume();
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          channelCount: 1,
-        }
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
       });
       const ctx = audioContextRef.current;
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 8192;
-      analyser.smoothingTimeConstant = 0.12;
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0;
       const source = ctx.createMediaStreamSource(stream);
       source.connect(analyser);
       streamRef.current = stream;
       sourceRef.current = source;
       analyserRef.current = analyser;
       setIsListening(true);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(analyse);
+      if (timerRef.current) window.clearInterval(timerRef.current);
+      timerRef.current = window.setInterval(analyse, 50);
     } catch (error) {
       console.error("No se pudo iniciar el afinador:", error);
       setIsListening(false);
@@ -1335,15 +1451,6 @@ function TunerPanel({ notes = [], visible = false }) {
   }, [analyse, isListening]);
 
   if (!visible || !notes.length) return null;
-
-  const trailPoints = trail.map((item, index) => {
-    const x = 5 + (index / Math.max(1, trail.length - 1)) * 190;
-    const y = 28 - (item.cents / 50) * 21;
-    return `${x},${clamp(y, 4, 52)}`;
-  }).join(" ");
-  const markerLeft = boundedCents == null ? 50 : 50 + (boundedCents / 50) * 50;
-  const activeNoteName = mode === "study" && targetNote ? targetNote.label : detectedLabel;
-  const activeTuningRole = mode === "study" && targetNote?.tuningRole ? targetNote.tuningRole : "";
 
   return (
     <div className={`mx-auto mt-2 w-full max-w-2xl rounded-2xl border p-2.5 transition ${inTune ? "border-emerald-300 bg-emerald-50/70" : "border-zinc-200 bg-zinc-50"}`}>
@@ -1357,12 +1464,12 @@ function TunerPanel({ notes = [], visible = false }) {
         <div className="text-center">
           {mode === "study" ? (
             <div className="flex items-center justify-center gap-2">
-              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); setTargetIndex((i) => { const next = Math.max(0, i - 1); targetIndexRef.current = next; return next; }); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
+              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); pitchHistoryRef.current.fill(NaN); setTargetIndex((i) => { const next = Math.max(0, i - 1); targetIndexRef.current = next; return next; }); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
               <div className="min-w-[86px] text-center">
                 <div className="text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
                 {activeTuningRole ? <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">{activeTuningRole}</div> : null}
               </div>
-              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); setTargetIndex((i) => { const next = Math.min(notes.length - 1, i + 1); targetIndexRef.current = next; return next; }); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">→</button>
+              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); pitchHistoryRef.current.fill(NaN); setTargetIndex((i) => { const next = Math.min(notes.length - 1, i + 1); targetIndexRef.current = next; return next; }); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">→</button>
             </div>
           ) : (
             <div className="min-w-[86px] text-center text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
@@ -1382,30 +1489,18 @@ function TunerPanel({ notes = [], visible = false }) {
         </div>
       </div>
 
-      <div className={`mt-2 rounded-xl border bg-white p-2 transition ${inTune ? "border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]" : "border-zinc-200"}`}>
-        <div className="mb-1 flex items-center justify-between text-[11px] text-zinc-500">
-          <span>{detectedHz ? `${detectedHz.toFixed(1)} Hz` : "Escuchando…"}</span>
-          <span>±50 cents</span>
-        </div>
-        <div className="relative h-12 overflow-hidden rounded-lg border border-zinc-200 bg-gradient-to-r from-rose-100 via-emerald-100 to-rose-100">
-          <div className="absolute inset-y-0 left-1/2 w-[20%] -translate-x-1/2 bg-emerald-300/65" />
-          <div className={`absolute inset-y-1 left-1/2 w-[20%] -translate-x-1/2 rounded-md border transition ${inTune ? "border-emerald-700 bg-emerald-400/35" : "border-emerald-600/40 bg-transparent"}`} />
-          <div className="absolute inset-y-0 left-1/2 w-px bg-zinc-900/70" />
-          <svg viewBox="0 0 200 56" className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
-            <line x1="0" x2="200" y1="28" y2="28" stroke="#71717a" strokeWidth="1" opacity="0.45" />
-            {trailPoints ? <polyline points={trailPoints} fill="none" stroke={inTune ? "#047857" : "#0f172a"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /> : null}
-          </svg>
-          {boundedCents != null ? (
-            <div
-              className={`absolute top-0 h-full w-0.5 shadow-[0_0_10px_rgba(14,165,233,0.55)] transition-[left,background-color] duration-150 ease-out ${inTune ? "bg-emerald-700" : "bg-sky-500"}`}
-              style={{ left: `${clamp(markerLeft, 0, 100)}%` }}
-            />
-          ) : null}
-        </div>
-        {mode === "study" ? (
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200"><div className="h-full rounded-full bg-emerald-500 transition-[width] duration-200 ease-out" style={{ width: `${Math.round(holdProgress * 100)}%` }} /></div>
-        ) : null}
-      </div>
+      <TunerStrip
+        cents={cents}
+        label={mode === "study" ? activeNoteName : detectedLabel}
+        sublabel={mode === "study" ? "nota objetivo en cualquier octava" : "nota más cercana en 12-TET"}
+        micEnabled={isListening}
+        active={isListening && !!centerFreq}
+        centerFreq={centerFreq}
+        pitchHistoryRef={pitchHistoryRef}
+        pitchHistoryIdxRef={pitchHistoryIdxRef}
+        holdProgress={mode === "study" ? holdProgress : 0}
+        compact
+      />
     </div>
   );
 }
