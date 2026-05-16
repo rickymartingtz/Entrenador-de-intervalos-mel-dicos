@@ -1246,7 +1246,7 @@ function TunerPanel({ notes = [], visible = false }) {
       const intervalFromPrevious = previousPitch ? Math.abs(1200 * Math.log2(pitch / previousPitch)) : Infinity;
       let nextPitch = pitch;
       if (previousPitch && intervalFromPrevious < 450) {
-        const pitchAlpha = intervalFromPrevious < 120 ? 0.18 : intervalFromPrevious < 300 ? 0.28 : 0.42;
+        const pitchAlpha = intervalFromPrevious < 120 ? 0.42 : intervalFromPrevious < 300 ? 0.56 : 0.74;
         nextPitch = previousPitch * (1 - pitchAlpha) + pitch * pitchAlpha;
       }
       smoothedPitchRef.current = nextPitch;
@@ -1265,7 +1265,7 @@ function TunerPanel({ notes = [], visible = false }) {
         let nextCents = rawCents;
         if (previousCents != null) {
           const centDelta = Math.abs(rawCents - previousCents);
-          const centsAlpha = centDelta < 18 ? 0.10 : centDelta < 40 ? 0.16 : centDelta < 75 ? 0.24 : 0.34;
+          const centsAlpha = centDelta < 18 ? 0.34 : centDelta < 40 ? 0.46 : centDelta < 75 ? 0.62 : 0.78;
           nextCents = previousCents * (1 - centsAlpha) + rawCents * centsAlpha;
         }
         smoothedCentsRef.current = nextCents;
@@ -1397,7 +1397,7 @@ function TunerPanel({ notes = [], visible = false }) {
           </svg>
           {boundedCents != null ? (
             <div
-              className={`absolute top-0 h-full w-0.5 shadow-[0_0_10px_rgba(14,165,233,0.55)] transition-[left,background-color] duration-300 ease-out ${inTune ? "bg-emerald-700" : "bg-sky-500"}`}
+              className={`absolute top-0 h-full w-0.5 shadow-[0_0_10px_rgba(14,165,233,0.55)] transition-[left,background-color] duration-150 ease-out ${inTune ? "bg-emerald-700" : "bg-sky-500"}`}
               style={{ left: `${clamp(markerLeft, 0, 100)}%` }}
             />
           ) : null}
