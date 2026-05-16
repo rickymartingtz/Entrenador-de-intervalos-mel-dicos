@@ -102,6 +102,10 @@ const DEFAULT_INSTRUMENT = "piano";
 const DEFAULT_INTERVAL_KEYS = ["P4", "P5", "P8"];
 const DEFAULT_CLEF_KEYS = ["treble"];
 const DEFAULT_DIRECTION_MODE = "random";
+const DEFAULT_TRAINER_MODE = "melodic";
+const DEFAULT_HARMONIC_RESPONSE_MODE = "givenBass";
+const HARMONIC_MIN_PAIRS = 1;
+const HARMONIC_MAX_PAIRS = 12;
 const SHORT_DIRECTION_OPTIONS = [
   { key: "random", label: "Libre" },
   { key: "ascending", label: "Ascendente" },
@@ -241,6 +245,21 @@ function frequencyToNearestMidi(frequency) {
 
 function centsOffFromMidi(frequency, midi) {
   return 1200 * Math.log2(frequency / midiToFreq(midi));
+}
+
+function centsOffFromPitchClass(frequency, targetMidi) {
+  if (!Number.isFinite(frequency) || frequency <= 0) return null;
+  const detectedCents = 1200 * Math.log2(frequency / 440);
+  const targetCents = (targetMidi - 69) * 100;
+  let diff = detectedCents - targetCents;
+  diff = ((diff + 600) % 1200 + 1200) % 1200 - 600;
+  return diff;
+}
+
+function centsOffFromNearestChromatic(frequency) {
+  if (!Number.isFinite(frequency) || frequency <= 0) return null;
+  const nearestMidi = frequencyToNearestMidi(frequency);
+  return centsOffFromMidi(frequency, nearestMidi);
 }
 
 function formatDetectedPitch(frequency) {
@@ -617,6 +636,105 @@ function buildTwelveToneSeries(noteCount, selectedIntervalKeys, selectedClefKeys
   };
 }
 
+
+function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys) {
+  const safeCount = clamp(pairCount, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS);
+  const intervals = sanitizeIntervalSelection(selectedIntervalKeys);
+  const clefKey = randomItem(sanitizeClefSelection(selectedClefKeys));
+  const clef = getClefConfig(clefKey);
+  const { all, central } = getNotesForClef(clefKey);
+  const lowerPool = (central.length ? central : all).filter((note) => note.midi <= clef.maxMidi - 1);
+  const pairs = [];
+
+  for (let i = 0; i < safeCount; i += 1) {
+    let pair = null;
+    for (let attempt = 0; attempt < 80 && !pair; attempt += 1) {
+      const lower = randomItem(lowerPool.length ? lowerPool : all);
+      const interval = getIntervalDefinition(randomItem(intervals.length ? intervals : DEFAULT_INTERVAL_KEYS));
+      if (!interval) continue;
+      const upper = transposeNote(lower, interval, 1, clef);
+      if (!upper || upper.midi <= lower.midi) continue;
+      pair = { lower, upper, intervalKey: interval.key, intervalShort: interval.short };
+    }
+
+    if (!pair) {
+      const lower = randomItem(lowerPool.length ? lowerPool : all);
+      const upperMidi = clamp(lower.midi + 7, clef.minMidi, clef.maxMidi);
+      pair = { lower, upper: midiToSimpleNote(upperMidi), intervalKey: "P5", intervalShort: "5J" };
+    }
+    pairs.push(pair);
+  }
+
+  return {
+    id: `${Date.now()}-${Math.random()}`,
+    type: "harmonic",
+    pairs,
+    clefKey,
+    mode: "harmonic",
+    intervalKeys: intervals,
+    startNote: pairs[0]?.lower?.label ?? "—",
+  };
+}
+
+function makeInitialAttempts(exercise, harmonicResponseMode = DEFAULT_HARMONIC_RESPONSE_MODE) {
+  if (exercise?.type === "harmonic") {
+    return (exercise.pairs ?? []).map((pair, index) => ({
+      lower: pair.lower,
+      upper: pair.upper,
+      lowerVisible: harmonicResponseMode === "givenBass" || index === 0,
+      upperVisible: false,
+      lowerStatus: "given",
+      upperStatus: null,
+    }));
+  }
+  const first = exercise?.sequence?.[0];
+  return first ? [{ note: first, status: "start" }] : [];
+}
+
+function firstHarmonicStep(exercise, harmonicResponseMode = DEFAULT_HARMONIC_RESPONSE_MODE) {
+  if (!exercise?.pairs?.length) return null;
+  return { pairIndex: 0, voice: harmonicResponseMode === "full" ? "upper" : "upper" };
+}
+
+function nextHarmonicStepAfter(step, exercise, harmonicResponseMode) {
+  if (!step || !exercise?.pairs?.length) return null;
+  if (harmonicResponseMode === "givenBass") {
+    const nextPair = step.pairIndex + 1;
+    return nextPair < exercise.pairs.length ? { pairIndex: nextPair, voice: "upper" } : null;
+  }
+  if (step.voice === "lower") return { pairIndex: step.pairIndex, voice: "upper" };
+  const nextPair = step.pairIndex + 1;
+  return nextPair < exercise.pairs.length ? { pairIndex: nextPair, voice: "lower" } : null;
+}
+
+function getExerciseTuningNotes(exercise) {
+  if (exercise?.type === "harmonic") {
+    return (exercise.pairs ?? []).flatMap((pair) => [pair.lower, pair.upper]);
+  }
+  return exercise?.sequence ?? [];
+}
+
+function getExerciseIntervalLabels(exercise) {
+  if (exercise?.type === "harmonic") {
+    return (exercise.pairs ?? []).map((pair, index) => `${index + 1}. ${pair.intervalShort ?? "—"}`);
+  }
+  return getIntervalLabels(exercise?.sequence ?? [], exercise?.intervalKeys ?? []);
+}
+
+function getExerciseModelLabels(exercise) {
+  if (exercise?.type === "harmonic") {
+    const signatures = (exercise.pairs ?? []).map((pair) => pair.intervalKey);
+    const labels = [];
+    for (let i = 0; i < signatures.length - 1; i += 1) {
+      if (signatures[i] === signatures[i + 1]) {
+        const interval = getIntervalDefinition(signatures[i]);
+        if (interval) labels.push(`${interval.short} + ${interval.short}`);
+      }
+    }
+    return [...new Set(labels)].slice(0, 10);
+  }
+  return detectModelLabels(exercise?.sequence ?? [], exercise?.intervalKeys ?? []);
+}
 function initialSettings() {
   const defaults = {
     noteCount: DEFAULT_NOTE_COUNT,
@@ -627,6 +745,8 @@ function initialSettings() {
     selectedClefKeys: DEFAULT_CLEF_KEYS,
     directionMode: DEFAULT_DIRECTION_MODE,
     useTwelveToneSeries: false,
+    trainerMode: DEFAULT_TRAINER_MODE,
+    harmonicResponseMode: DEFAULT_HARMONIC_RESPONSE_MODE,
   };
   try {
     const stored = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) || "null");
@@ -641,6 +761,8 @@ function initialSettings() {
       tempo: clamp(Number(stored.tempo ?? defaults.tempo), MIN_TEMPO, MAX_TEMPO),
       volume: clamp(Number(stored.volume ?? defaults.volume), MIN_VOLUME, MAX_VOLUME),
       instrument: INSTRUMENTS.some((item) => item.value === stored.instrument) ? stored.instrument : DEFAULT_INSTRUMENT,
+      trainerMode: stored.trainerMode === "harmonic" ? "harmonic" : "melodic",
+      harmonicResponseMode: stored.harmonicResponseMode === "full" ? "full" : "givenBass",
     };
   } catch {
     return defaults;
@@ -748,16 +870,14 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
   const dragRef = useRef({ active: false, startX: 0, startScrollLeft: 0 });
+  const touchRef = useRef({ active: false, startX: 0, startScrollLeft: 0 });
   const [renderError, setRenderError] = useState("");
   const [scrollMetrics, setScrollMetrics] = useState({ left: 0, max: 0 });
 
   const updateScrollMetrics = useCallback(() => {
     const node = scrollRef.current;
     if (!node) return;
-    setScrollMetrics({
-      left: node.scrollLeft,
-      max: Math.max(0, node.scrollWidth - node.clientWidth),
-    });
+    setScrollMetrics({ left: node.scrollLeft, max: Math.max(0, node.scrollWidth - node.clientWidth) });
   }, []);
 
   const scrollStaffBy = useCallback((amount) => {
@@ -774,10 +894,11 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
       setRenderError("");
 
       const clef = getClefConfig(exercise?.clefKey ?? "treble");
+      const isHarmonic = exercise?.type === "harmonic";
       const target = exercise?.sequence ?? [];
-      const entries = attemptNotes.length > 0
-        ? attemptNotes
-        : target.slice(0, 1).map((note) => ({ note, status: "start" }));
+      const entries = isHarmonic
+        ? (attemptNotes ?? []).filter((entry) => entry.lowerVisible || entry.upperVisible)
+        : (attemptNotes.length > 0 ? attemptNotes : target.slice(0, 1).map((note) => ({ note, status: "start" })));
 
       if (!entries.length) return;
 
@@ -786,31 +907,40 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
         const availableWidth = Math.max(300, scrollRef.current?.clientWidth ?? 650);
         const compact = availableWidth < 520;
         const baseWidth = Math.min(650, Math.max(330, availableWidth - 8));
-        const width = Math.max(baseWidth, 150 + entries.length * (compact ? 64 : 78));
-        const height = compact ? 146 : 154;
+        const width = Math.max(baseWidth, 154 + entries.length * (compact ? 74 : 88));
+        const height = compact ? 166 : 174;
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
         const context = renderer.getContext();
-        const stave = new Stave(compact ? 12 : 18, compact ? 24 : 28, width - (compact ? 24 : 40));
+        const stave = new Stave(compact ? 12 : 18, compact ? 34 : 38, width - (compact ? 24 : 40));
         stave.addClef(clef.vex);
         stave.setContext(context).draw();
 
         const accidentalState = new Map();
-        const vexNotes = entries.map(({ note }) => {
+        const noteGroups = entries.map((entry) => {
+          if (!isHarmonic) return [{ note: entry.note, role: "single", status: entry.status }];
+          const group = [];
+          if (entry.lowerVisible) group.push({ note: entry.lower, role: "lower", status: entry.lowerStatus });
+          if (entry.upperVisible) group.push({ note: entry.upper, role: "upper", status: entry.upperStatus });
+          return group;
+        });
+
+        const vexNotes = noteGroups.map((group) => {
           const staveNote = new StaveNote({
             clef: clef.vex,
-            keys: [noteToVexKey(note, clef)],
+            keys: group.map(({ note }) => noteToVexKey(note, clef)),
             duration: "w",
           });
-
-          const stateKey = `${note.letter}${note.octave + (clef.displayOctaveShift ?? 0)}`;
-          const previousAccidental = accidentalState.get(stateKey) ?? 0;
-          if (note.accidental !== 0) {
-            staveNote.addModifier(new Accidental(ACCIDENTAL_ASCII[note.accidental]), 0);
-          } else if (previousAccidental !== 0) {
-            staveNote.addModifier(new Accidental("n"), 0);
-          }
-          accidentalState.set(stateKey, note.accidental);
+          group.forEach(({ note }, noteIndex) => {
+            const stateKey = `${note.letter}${note.octave + (clef.displayOctaveShift ?? 0)}`;
+            const previousAccidental = accidentalState.get(stateKey) ?? 0;
+            if (note.accidental !== 0) {
+              staveNote.addModifier(new Accidental(ACCIDENTAL_ASCII[note.accidental]), noteIndex);
+            } else if (previousAccidental !== 0) {
+              staveNote.addModifier(new Accidental("n"), noteIndex);
+            }
+            accidentalState.set(stateKey, note.accidental);
+          });
           return staveNote;
         });
 
@@ -818,7 +948,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
         if (typeof voice.setMode === "function" && Voice.Mode) voice.setMode(Voice.Mode.SOFT);
         if (typeof voice.setStrict === "function") voice.setStrict(false);
         voice.addTickables(vexNotes);
-        new Formatter().joinVoices([voice]).format([voice], width - (compact ? 108 : 130));
+        new Formatter().joinVoices([voice]).format([voice], width - (compact ? 112 : 136));
         voice.draw(context, stave);
 
         const svg = containerRef.current.querySelector("svg");
@@ -831,7 +961,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
           if (clef.tag) {
             const tag = document.createElementNS(ns, "text");
             tag.setAttribute("x", compact ? "46" : "56");
-            tag.setAttribute("y", compact ? "27" : "30");
+            tag.setAttribute("y", compact ? "37" : "40");
             tag.setAttribute("font-size", compact ? "11" : "13");
             tag.setAttribute("font-weight", "700");
             tag.setAttribute("fill", "#52525b");
@@ -840,39 +970,45 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
           }
 
           entries.forEach((entry, index) => {
-            const status = entry.status;
-            if (status !== "correct" && status !== "wrong" && status !== "start") return;
             const vexNote = vexNotes[index];
-            const absoluteX = typeof vexNote.getAbsoluteX === "function" ? vexNote.getAbsoluteX() : 88 + index * 68;
             const beginX = typeof vexNote.getNoteHeadBeginX === "function" ? vexNote.getNoteHeadBeginX() : null;
             const endX = typeof vexNote.getNoteHeadEndX === "function" ? vexNote.getNoteHeadEndX() : null;
+            const absoluteX = typeof vexNote.getAbsoluteX === "function" ? vexNote.getAbsoluteX() : 88 + index * 68;
             const noteX = typeof beginX === "number" && typeof endX === "number" ? (beginX + endX) / 2 : absoluteX;
-            const ys = typeof vexNote.getYs === "function" ? vexNote.getYs() : [82];
-            const y = Array.isArray(ys) && ys.length ? ys[0] : 82;
+            const ys = typeof vexNote.getYs === "function" ? vexNote.getYs() : [92];
+            const drawMark = (status, y, placement = "above") => {
+              if (status !== "correct" && status !== "wrong") return;
+              const color = status === "correct" ? "#16a34a" : "#dc2626";
+              const mark = document.createElementNS(ns, "text");
+              mark.setAttribute("x", String(noteX));
+              mark.setAttribute("y", String(placement === "below" ? y + 34 : y - 25));
+              mark.setAttribute("text-anchor", "middle");
+              mark.setAttribute("dominant-baseline", "middle");
+              mark.setAttribute("font-size", "19");
+              mark.setAttribute("font-weight", "800");
+              mark.setAttribute("fill", color);
+              mark.textContent = status === "correct" ? "✓" : "×";
+              svg.appendChild(mark);
+              const underline = document.createElementNS(ns, "line");
+              underline.setAttribute("x1", String(noteX - 15));
+              underline.setAttribute("x2", String(noteX + 15));
+              underline.setAttribute("y1", String(placement === "below" ? y + 19 : y + 21));
+              underline.setAttribute("y2", String(placement === "below" ? y + 19 : y + 21));
+              underline.setAttribute("stroke", color);
+              underline.setAttribute("stroke-width", "3");
+              underline.setAttribute("stroke-linecap", "round");
+              svg.appendChild(underline);
+            };
 
-            if (status === "start") return;
-
-            const color = status === "correct" ? "#16a34a" : "#dc2626";
-            const mark = document.createElementNS(ns, "text");
-            mark.setAttribute("x", String(noteX));
-            mark.setAttribute("y", String(y - 25));
-            mark.setAttribute("text-anchor", "middle");
-            mark.setAttribute("dominant-baseline", "middle");
-            mark.setAttribute("font-size", "19");
-            mark.setAttribute("font-weight", "800");
-            mark.setAttribute("fill", color);
-            mark.textContent = status === "correct" ? "✓" : "×";
-            svg.appendChild(mark);
-
-            const underline = document.createElementNS(ns, "line");
-            underline.setAttribute("x1", String(noteX - 15));
-            underline.setAttribute("x2", String(noteX + 15));
-            underline.setAttribute("y1", String(y + 21));
-            underline.setAttribute("y2", String(y + 21));
-            underline.setAttribute("stroke", color);
-            underline.setAttribute("stroke-width", "3");
-            underline.setAttribute("stroke-linecap", "round");
-            svg.appendChild(underline);
+            if (!isHarmonic) {
+              drawMark(entry.status, Array.isArray(ys) && ys.length ? ys[0] : 92, "above");
+            } else {
+              const group = noteGroups[index];
+              group.forEach((item, groupIndex) => {
+                const y = ys[groupIndex] ?? ys[0] ?? 92;
+                drawMark(item.status, y, item.role === "lower" ? "below" : "above");
+              });
+            }
           });
         }
 
@@ -880,7 +1016,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
           updateScrollMetrics();
           const node = scrollRef.current;
           if (node && node.scrollWidth > node.clientWidth) {
-            const lastNoteX = Math.max(0, Math.min(node.scrollWidth - node.clientWidth, entries.length * (compact ? 64 : 78) - node.clientWidth * 0.45));
+            const lastNoteX = Math.max(0, Math.min(node.scrollWidth - node.clientWidth, entries.length * (compact ? 74 : 88) - node.clientWidth * 0.45));
             node.scrollTo({ left: lastNoteX, behavior: "smooth" });
             window.setTimeout(updateScrollMetrics, 250);
           }
@@ -890,7 +1026,6 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
         setRenderError("Hubo un problema al dibujar la partitura.");
       }
     }
-
     renderStaff();
   }, [attemptNotes, exercise, revealFull, updateScrollMetrics]);
 
@@ -900,7 +1035,6 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
     dragRef.current = { active: true, startX: event.clientX, startScrollLeft: node.scrollLeft };
     node.setPointerCapture?.(event.pointerId);
   }, []);
-
   const handlePointerMove = useCallback((event) => {
     const node = scrollRef.current;
     if (!node || !dragRef.current.active) return;
@@ -908,11 +1042,20 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
     node.scrollLeft = dragRef.current.startScrollLeft - delta;
     updateScrollMetrics();
   }, [updateScrollMetrics]);
-
-  const stopDrag = useCallback(() => {
-    dragRef.current.active = false;
+  const stopDrag = useCallback(() => { dragRef.current.active = false; }, []);
+  const handleTouchStart = useCallback((event) => {
+    const node = scrollRef.current;
+    if (!node || node.scrollWidth <= node.clientWidth || !event.touches?.length) return;
+    touchRef.current = { active: true, startX: event.touches[0].clientX, startScrollLeft: node.scrollLeft };
   }, []);
-
+  const handleTouchMove = useCallback((event) => {
+    const node = scrollRef.current;
+    if (!node || !touchRef.current.active || !event.touches?.length) return;
+    const delta = event.touches[0].clientX - touchRef.current.startX;
+    node.scrollLeft = touchRef.current.startScrollLeft - delta;
+    updateScrollMetrics();
+  }, [updateScrollMetrics]);
+  const stopTouch = useCallback(() => { touchRef.current.active = false; }, []);
   const progress = scrollMetrics.max > 0 ? Math.min(100, Math.max(0, ((scrollMetrics.left + 1) / scrollMetrics.max) * 100)) : 0;
 
   return (
@@ -924,17 +1067,19 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
         onPointerMove={handlePointerMove}
         onPointerUp={stopDrag}
         onPointerCancel={stopDrag}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={stopTouch}
+        onTouchCancel={stopTouch}
         className="max-w-full cursor-grab touch-pan-x overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-xl bg-white px-1 pt-2 pb-1 active:cursor-grabbing sm:px-2"
-        style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin" }}
+        style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin", touchAction: "pan-x" }}
       >
         <div ref={containerRef} className="inline-block min-w-max align-top" />
       </div>
       {scrollMetrics.max > 4 ? (
         <div className="flex items-center gap-2 px-1 sm:hidden">
           <button type="button" onClick={() => scrollStaffBy(-180)} className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-600">←</button>
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-200">
-            <div className="h-full rounded-full bg-zinc-500 transition-all" style={{ width: `${Math.max(16, progress)}%` }} />
-          </div>
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-200"><div className="h-full rounded-full bg-zinc-500 transition-all" style={{ width: `${Math.max(16, progress)}%` }} /></div>
           <button type="button" onClick={() => scrollStaffBy(180)} className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-600">→</button>
         </div>
       ) : null}
@@ -954,8 +1099,10 @@ function TunerPanel({ notes = [], visible = false }) {
   const completedRef = useRef(new Set());
 
   const [isListening, setIsListening] = useState(false);
+  const [mode, setMode] = useState("study");
   const [targetIndex, setTargetIndex] = useState(0);
   const [detectedHz, setDetectedHz] = useState(null);
+  const [detectedLabel, setDetectedLabel] = useState("—");
   const [cents, setCents] = useState(null);
   const [trail, setTrail] = useState([]);
   const [holdSeconds, setHoldSeconds] = useState(2);
@@ -967,7 +1114,6 @@ function TunerPanel({ notes = [], visible = false }) {
   const tolerance = 10;
   const boundedCents = Number.isFinite(cents) ? clamp(cents, -50, 50) : null;
   const inTune = Number.isFinite(cents) && Math.abs(cents) <= tolerance;
-  const completedCount = completedRef.current.size;
 
   const stopListening = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -985,6 +1131,7 @@ function TunerPanel({ notes = [], visible = false }) {
   const resetTunerState = useCallback(() => {
     setTargetIndex(0);
     setDetectedHz(null);
+    setDetectedLabel("—");
     setCents(null);
     setTrail([]);
     setHoldProgress(0);
@@ -993,13 +1140,8 @@ function TunerPanel({ notes = [], visible = false }) {
     holdStartRef.current = null;
   }, []);
 
-  useEffect(() => {
-    resetTunerState();
-  }, [notes, resetTunerState]);
-
-  useEffect(() => {
-    return () => stopListening();
-  }, [stopListening]);
+  useEffect(() => { resetTunerState(); }, [notes, resetTunerState]);
+  useEffect(() => () => stopListening(), [stopListening]);
 
   const advanceTarget = useCallback(() => {
     if (!notes.length) return;
@@ -1018,40 +1160,52 @@ function TunerPanel({ notes = [], visible = false }) {
   const analyse = useCallback(() => {
     const analyser = analyserRef.current;
     const ctx = audioContextRef.current;
-    const target = notes[targetIndex];
-    if (!analyser || !ctx || !target) return;
-
+    if (!analyser || !ctx) return;
     const buffer = new Float32Array(analyser.fftSize);
     analyser.getFloatTimeDomainData(buffer);
     const pitch = autoCorrelatePitch(buffer, ctx.sampleRate);
     const now = performance.now();
 
     if (pitch && now - lastUiUpdateRef.current > 70) {
-      const nextCents = centsOffFromMidi(pitch, target.midi);
-      const clamped = clamp(nextCents, -50, 50);
-      setDetectedHz(pitch);
-      setCents(nextCents);
-      setTrail((current) => [...current.slice(-70), { cents: clamped, t: now }]);
+      const nearestMidi = frequencyToNearestMidi(pitch);
+      const label = midiToSimpleNote(nearestMidi).label;
+      const nextCents = mode === "free"
+        ? centsOffFromNearestChromatic(pitch)
+        : (targetNote ? centsOffFromPitchClass(pitch, targetNote.midi) : null);
+      if (nextCents != null) {
+        const clamped = clamp(nextCents, -50, 50);
+        setDetectedHz(pitch);
+        setDetectedLabel(label);
+        setCents(nextCents);
+        setTrail((current) => [...current.slice(-95), { cents: clamped, t: now }]);
 
-      if (Math.abs(nextCents) <= tolerance) {
-        if (holdStartRef.current == null) holdStartRef.current = now;
-        const progress = Math.min(1, (now - holdStartRef.current) / (holdSeconds * 1000));
-        setHoldProgress(progress);
-        if (progress >= 1) advanceTarget();
-      } else {
-        holdStartRef.current = null;
-        setHoldProgress(0);
-        setMessage(nextCents < 0 ? "Estás bajo." : "Estás alto.");
+        if (mode === "study" && targetNote) {
+          if (Math.abs(nextCents) <= tolerance && pitchClassOf(nearestMidi) === pitchClassOf(targetNote)) {
+            if (holdStartRef.current == null) holdStartRef.current = now;
+            const progress = Math.min(1, (now - holdStartRef.current) / (holdSeconds * 1000));
+            setHoldProgress(progress);
+            setMessage("Dentro del centro. Sostén la nota.");
+            if (progress >= 1) advanceTarget();
+          } else {
+            holdStartRef.current = null;
+            setHoldProgress(0);
+            if (pitchClassOf(nearestMidi) !== pitchClassOf(targetNote)) {
+              setMessage(`Detecto ${label}. Busca ${targetNote.label} en cualquier octava.`);
+            } else {
+              setMessage(nextCents < 0 ? "Estás bajo." : "Estás alto.");
+            }
+          }
+        } else {
+          setHoldProgress(0);
+          setMessage("Modo libre: reconoce cualquier nota cromática que cantes.");
+        }
       }
-
       lastUiUpdateRef.current = now;
     }
-
     rafRef.current = requestAnimationFrame(analyse);
-  }, [advanceTarget, holdSeconds, notes, targetIndex]);
+  }, [advanceTarget, holdSeconds, mode, targetNote]);
 
   const startListening = useCallback(async () => {
-    if (!targetNote) return;
     try {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (!audioContextRef.current) audioContextRef.current = new AudioContextClass();
@@ -1060,27 +1214,27 @@ function TunerPanel({ notes = [], visible = false }) {
       const ctx = audioContextRef.current;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 4096;
-      analyser.smoothingTimeConstant = 0.2;
+      analyser.smoothingTimeConstant = 0.18;
       const source = ctx.createMediaStreamSource(stream);
       source.connect(analyser);
       streamRef.current = stream;
       sourceRef.current = source;
       analyserRef.current = analyser;
       setIsListening(true);
-      setMessage("Canta y sostén la nota dentro del centro verde.");
+      setMessage(mode === "study" ? "Canta y sostén la nota dentro del centro verde." : "Canta cualquier nota.");
       rafRef.current = requestAnimationFrame(analyse);
     } catch (error) {
       console.error("No se pudo iniciar el afinador:", error);
       setMessage("No se pudo activar el micrófono. Revisa permisos del navegador.");
       setIsListening(false);
     }
-  }, [analyse, targetNote]);
+  }, [analyse, mode]);
 
-  if (!visible || !notes.length || !targetNote) return null;
+  if (!visible || !notes.length) return null;
 
   const trailPoints = trail.map((item, index) => {
     const x = 6 + (index / Math.max(1, trail.length - 1)) * 188;
-    const y = 34 - (item.cents / 50) * 26;
+    const y = 34 - (item.cents / 50) * 25;
     return `${x},${clamp(y, 8, 60)}`;
   }).join(" ");
   const markerLeft = boundedCents == null ? 50 : 50 + (boundedCents / 50) * 50;
@@ -1089,49 +1243,57 @@ function TunerPanel({ notes = [], visible = false }) {
     <div className="mx-auto mt-4 w-full max-w-2xl rounded-2xl border border-zinc-200 bg-zinc-50 p-3 sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-zinc-800">Afinador · modo estudio</p>
-          <p className="text-xs text-zinc-500">Objetivo: {targetNote.label} · {targetFreq?.toFixed(1)} Hz · margen ±{tolerance} cents</p>
+          <p className="text-sm font-semibold text-zinc-800">Afinador</p>
+          <p className="text-xs text-zinc-500">
+            {mode === "study" && targetNote ? `Objetivo: ${targetNote.label} en cualquier octava · margen ±${tolerance} cents` : "Modo libre: detección cromática"}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setMode("study")} className={`rounded-full border px-3 py-1 text-xs font-semibold ${mode === "study" ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}>Estudio</button>
+          <button type="button" onClick={() => setMode("free")} className={`rounded-full border px-3 py-1 text-xs font-semibold ${mode === "free" ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}>Libre</button>
+        </div>
+      </div>
+
+      {mode === "study" ? (
+        <div className="mt-3 flex items-center justify-between gap-2">
           <button type="button" onClick={() => setTargetIndex((i) => Math.max(0, i - 1))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
           <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">{targetIndex + 1}/{notes.length}</span>
           <button type="button" onClick={() => setTargetIndex((i) => Math.min(notes.length - 1, i + 1))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">→</button>
         </div>
-      </div>
+      ) : null}
 
-      <div className="mt-3 rounded-xl bg-zinc-950 p-3 text-white">
-        <div className="mb-2 flex items-center justify-between text-xs text-zinc-300">
-          <span>{detectedHz ? formatDetectedPitch(detectedHz) : "Escuchando…"}</span>
+      <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3">
+        <div className="mb-2 flex items-center justify-between text-xs text-zinc-500">
+          <span>{detectedHz ? `${detectedLabel} · ${detectedHz.toFixed(1)} Hz` : "Escuchando…"}</span>
           <span>{Number.isFinite(cents) ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents` : "—"}</span>
         </div>
-        <div className="relative h-16 overflow-hidden rounded-lg bg-black">
-          <div className="absolute inset-y-0 left-1/2 w-[20%] -translate-x-1/2 bg-emerald-500/55" />
-          <div className="absolute inset-y-0 left-1/2 w-px bg-white/80" />
-          <div className="absolute inset-y-0 left-0 w-[40%] bg-red-500/20" />
-          <div className="absolute inset-y-0 right-0 w-[40%] bg-red-500/20" />
+        <div className="relative h-16 overflow-hidden rounded-lg bg-zinc-100">
+          <div className="absolute inset-y-0 left-1/2 w-[20%] -translate-x-1/2 bg-emerald-400/45" />
+          <div className="absolute inset-y-0 left-1/2 w-px bg-zinc-800/70" />
           <svg viewBox="0 0 200 68" className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
-            {trailPoints ? <polyline points={trailPoints} fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /> : null}
+            <line x1="0" x2="200" y1="34" y2="34" stroke="#d4d4d8" strokeWidth="1" />
+            {trailPoints ? <polyline points={trailPoints} fill="none" stroke="#0f172a" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" /> : null}
           </svg>
           {boundedCents != null ? (
-            <div className="absolute top-0 h-full w-0.5 bg-sky-300 shadow-[0_0_12px_rgba(125,211,252,0.9)]" style={{ left: `${clamp(markerLeft, 0, 100)}%` }} />
+            <div className="absolute top-0 h-full w-0.5 bg-sky-500 shadow-[0_0_10px_rgba(14,165,233,0.55)]" style={{ left: `${clamp(markerLeft, 0, 100)}%` }} />
           ) : null}
         </div>
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-700">
-          <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${Math.round(holdProgress * 100)}%` }} />
-        </div>
+        {mode === "study" ? (
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${Math.round(holdProgress * 100)}%` }} /></div>
+        ) : null}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <p className={`text-xs ${inTune ? "text-emerald-700" : "text-zinc-500"}`}>{message}</p>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => setHoldSeconds((s) => clamp(s - 0.5, 0.5, 5))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">−</button>
-          <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700">{holdSeconds.toFixed(1)} s</span>
-          <button type="button" onClick={() => setHoldSeconds((s) => clamp(s + 0.5, 0.5, 5))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">+</button>
-          {isListening ? (
-            <button type="button" onClick={stopListening} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">Detener</button>
-          ) : (
-            <button type="button" onClick={startListening} className="rounded-full border border-zinc-950 bg-zinc-950 px-3 py-1 text-xs font-semibold text-white">Activar micrófono</button>
-          )}
+          {mode === "study" ? (
+            <>
+              <button type="button" onClick={() => setHoldSeconds((s) => clamp(s - 0.5, 0.5, 5))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">−</button>
+              <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700">{holdSeconds.toFixed(1)} s</span>
+              <button type="button" onClick={() => setHoldSeconds((s) => clamp(s + 0.5, 0.5, 5))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">+</button>
+            </>
+          ) : null}
+          {isListening ? <button type="button" onClick={stopListening} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">Detener</button> : <button type="button" onClick={startListening} className="rounded-full border border-zinc-950 bg-zinc-950 px-3 py-1 text-xs font-semibold text-white">Activar micrófono</button>}
         </div>
       </div>
     </div>
@@ -1203,6 +1365,7 @@ export default function IntervalTrainerPage() {
   const activeFallbackNodesRef = useRef([]);
   const activePlayersRef = useRef([]);
   const playbackTimeoutRef = useRef(null);
+  const playbackSessionRef = useRef(0);
 
   const [noteCount, setNoteCount] = useState(saved?.noteCount ?? DEFAULT_NOTE_COUNT);
   const [tempo, setTempo] = useState(saved?.tempo ?? DEFAULT_TEMPO);
@@ -1212,7 +1375,13 @@ export default function IntervalTrainerPage() {
   const [selectedClefKeys, setSelectedClefKeys] = useState(saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS);
   const [directionMode, setDirectionMode] = useState(saved?.directionMode ?? DEFAULT_DIRECTION_MODE);
   const [useTwelveToneSeries, setUseTwelveToneSeries] = useState(saved?.useTwelveToneSeries ?? false);
+  const [trainerMode, setTrainerMode] = useState(saved?.trainerMode ?? DEFAULT_TRAINER_MODE);
+  const [harmonicResponseMode, setHarmonicResponseMode] = useState(saved?.harmonicResponseMode ?? DEFAULT_HARMONIC_RESPONSE_MODE);
   const [exercise, setExercise] = useState(() => {
+    const mode = saved?.trainerMode ?? DEFAULT_TRAINER_MODE;
+    if (mode === "harmonic") {
+      return buildHarmonicSequence(clamp(saved?.noteCount ?? 4, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS), saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS);
+    }
     const count = saved?.useTwelveToneSeries
       ? clamp(saved.noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES)
       : clamp(saved?.noteCount ?? DEFAULT_NOTE_COUNT, MIN_NOTES, MAX_NOTES);
@@ -1220,8 +1389,9 @@ export default function IntervalTrainerPage() {
       ? buildTwelveToneSeries(count, saved.selectedIntervalKeys, saved.selectedClefKeys)
       : buildMelody(count, saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS, saved?.directionMode ?? DEFAULT_DIRECTION_MODE);
   });
-  const [attemptNotes, setAttemptNotes] = useState(() => [{ note: exercise.sequence[0], status: "start" }]);
+  const [attemptNotes, setAttemptNotes] = useState(() => makeInitialAttempts(exercise, saved?.harmonicResponseMode ?? DEFAULT_HARMONIC_RESPONSE_MODE));
   const [nextIndex, setNextIndex] = useState(1);
+  const [harmonicStep, setHarmonicStep] = useState(() => firstHarmonicStep(exercise, saved?.harmonicResponseMode ?? DEFAULT_HARMONIC_RESPONSE_MODE));
   const [revealFull, setRevealFull] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [buttonFlash, setButtonFlash] = useState(false);
@@ -1230,20 +1400,21 @@ export default function IntervalTrainerPage() {
   const selectedInstrument = useMemo(() => INSTRUMENTS.find((item) => item.value === instrument) ?? INSTRUMENTS.find((item) => item.value === DEFAULT_INSTRUMENT), [instrument]);
   const hasSelectedIntervals = selectedIntervalKeys.length > 0;
   const hasSelectedClefs = selectedClefKeys.length > 0;
+  const isHarmonicMode = trainerMode === "harmonic";
   const twelveToneUsableIntervals = useMemo(() => getTwelveToneIntervalKeys(selectedIntervalKeys), [selectedIntervalKeys]);
-  const canGenerate = hasSelectedIntervals && hasSelectedClefs && (!useTwelveToneSeries || twelveToneUsableIntervals.length > 0);
-  const safeNoteCount = useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES);
-  const expectedNote = exercise.sequence[nextIndex] ?? null;
-  const exerciseComplete = nextIndex >= exercise.sequence.length;
+  const canGenerate = hasSelectedIntervals && hasSelectedClefs && (isHarmonicMode || !useTwelveToneSeries || twelveToneUsableIntervals.length > 0);
+  const safeNoteCount = isHarmonicMode ? clamp(noteCount, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS) : (useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES));
+  const expectedNote = isHarmonicMode && harmonicStep ? exercise.pairs?.[harmonicStep.pairIndex]?.[harmonicStep.voice] : exercise.sequence?.[nextIndex] ?? null;
+  const exerciseComplete = isHarmonicMode ? harmonicStep == null : nextIndex >= (exercise.sequence?.length ?? 0);
   const score = scoreFromStats(stats);
-  const intervalLabels = useMemo(() => getIntervalLabels(exercise.sequence, exercise.intervalKeys), [exercise]);
-  const modelLabels = useMemo(() => detectModelLabels(exercise.sequence, exercise.intervalKeys), [exercise]);
+  const intervalLabels = useMemo(() => getExerciseIntervalLabels(exercise), [exercise]);
+  const modelLabels = useMemo(() => getExerciseModelLabels(exercise), [exercise]);
   const visibleDirectionOptions = useMemo(() => {
-    if (useTwelveToneSeries) return [];
+    if (isHarmonicMode || useTwelveToneSeries) return [];
     if (noteCount === 2) return SHORT_DIRECTION_OPTIONS.filter((option) => option.key !== "mixed");
     if (noteCount === 3) return SHORT_DIRECTION_OPTIONS;
     return [];
-  }, [noteCount, useTwelveToneSeries]);
+  }, [isHarmonicMode, noteCount, useTwelveToneSeries]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -1263,9 +1434,11 @@ export default function IntervalTrainerPage() {
         selectedClefKeys,
         directionMode,
         useTwelveToneSeries,
+        trainerMode,
+        harmonicResponseMode,
       }));
     } catch {}
-  }, [directionMode, instrument, noteCount, selectedClefKeys, selectedIntervalKeys, tempo, useTwelveToneSeries, volume]);
+  }, [directionMode, harmonicResponseMode, instrument, noteCount, selectedClefKeys, selectedIntervalKeys, tempo, trainerMode, useTwelveToneSeries, volume]);
 
   useEffect(() => {
     try {
@@ -1311,6 +1484,7 @@ export default function IntervalTrainerPage() {
   }, []);
 
   const stopPlayback = useCallback(() => {
+    playbackSessionRef.current += 1;
     if (playbackTimeoutRef.current) {
       window.clearTimeout(playbackTimeoutRef.current);
       playbackTimeoutRef.current = null;
@@ -1431,7 +1605,13 @@ export default function IntervalTrainerPage() {
   }, []);
 
   const playExercise = useCallback(async (exerciseToPlay = exercise) => {
-    if (!exerciseToPlay?.sequence?.length) return;
+    const isHarmonic = exerciseToPlay?.type === "harmonic";
+    const playableGroups = isHarmonic
+      ? (exerciseToPlay?.pairs ?? []).map((pair) => [pair.lower, pair.upper])
+      : (exerciseToPlay?.sequence ?? []).map((note) => [note]);
+    if (!playableGroups.length) return;
+    const sessionId = playbackSessionRef.current + 1;
+    playbackSessionRef.current = sessionId;
     setIsPlaying(true);
     stopAllAudio();
     try {
@@ -1447,50 +1627,73 @@ export default function IntervalTrainerPage() {
       } catch (error) {
         console.warn("No se pudo cargar SoundFont. Usando síntesis interna.", error);
       }
+      if (sessionId !== playbackSessionRef.current) return;
+      stopAllAudio();
 
-      exerciseToPlay.sequence.forEach((note, index) => {
+      playableGroups.forEach((group, index) => {
         const start = baseTime + index * step;
-        if (sfInstrument) {
-          const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, {
-            duration: noteDuration,
-            gain,
-          });
-          activePlayersRef.current.push(player);
-        } else {
-          createFallbackVoice(ctx, midiToFreq(note.midi), selectedInstrument?.fallback ?? "piano", start, noteDuration, volume);
-        }
+        group.forEach((note) => {
+          if (sfInstrument) {
+            const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration: noteDuration, gain });
+            activePlayersRef.current.push(player);
+          } else {
+            createFallbackVoice(ctx, midiToFreq(note.midi), selectedInstrument?.fallback ?? "piano", start, noteDuration, volume);
+          }
+        });
       });
 
       if (playbackTimeoutRef.current) window.clearTimeout(playbackTimeoutRef.current);
       playbackTimeoutRef.current = window.setTimeout(() => {
-        setIsPlaying(false);
-        playbackTimeoutRef.current = null;
-      }, exerciseToPlay.sequence.length * step * 1000 + 550);
+        if (sessionId === playbackSessionRef.current) {
+          setIsPlaying(false);
+          playbackTimeoutRef.current = null;
+        }
+      }, playableGroups.length * step * 1000 + 550);
     } catch (error) {
       console.error("Error al reproducir:", error);
-      setIsPlaying(false);
+      if (sessionId === playbackSessionRef.current) setIsPlaying(false);
     }
   }, [createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, selectedInstrument, stopAllAudio, tempo, volume]);
 
   const startExercise = useCallback(() => {
     if (!canGenerate) return;
-    const count = useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES);
-    const nextExercise = useTwelveToneSeries
-      ? buildTwelveToneSeries(count, selectedIntervalKeys, selectedClefKeys)
-      : buildMelody(count, selectedIntervalKeys, selectedClefKeys, directionMode);
+    const count = isHarmonicMode ? clamp(noteCount, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS) : (useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES));
+    const nextExercise = isHarmonicMode
+      ? buildHarmonicSequence(count, selectedIntervalKeys, selectedClefKeys)
+      : (useTwelveToneSeries
+        ? buildTwelveToneSeries(count, selectedIntervalKeys, selectedClefKeys)
+        : buildMelody(count, selectedIntervalKeys, selectedClefKeys, directionMode));
     setExercise(nextExercise);
-    setAttemptNotes([{ note: nextExercise.sequence[0], status: "start" }]);
+    setAttemptNotes(makeInitialAttempts(nextExercise, harmonicResponseMode));
     setNextIndex(1);
+    setHarmonicStep(firstHarmonicStep(nextExercise, harmonicResponseMode));
     setRevealFull(false);
     setStats((current) => ({ ...current, exercises: current.exercises + 1 }));
     setButtonFlash(true);
     window.setTimeout(() => setButtonFlash(false), 420);
     playExercise(nextExercise);
-  }, [canGenerate, directionMode, noteCount, playExercise, selectedClefKeys, selectedIntervalKeys, useTwelveToneSeries]);
+  }, [canGenerate, directionMode, harmonicResponseMode, isHarmonicMode, noteCount, playExercise, selectedClefKeys, selectedIntervalKeys, useTwelveToneSeries]);
 
   const handleKeyboardPress = useCallback((pc) => {
     if (!expectedNote || revealFull) return;
     const correct = pitchClassOf(expectedNote) === pc;
+    if (isHarmonicMode && harmonicStep) {
+      setAttemptNotes((current) => current.map((entry, index) => {
+        if (index !== harmonicStep.pairIndex) return entry;
+        const next = { ...entry };
+        if (harmonicStep.voice === "lower") {
+          next.lowerVisible = true;
+          next.lowerStatus = correct ? "correct" : "wrong";
+        } else {
+          next.upperVisible = true;
+          next.upperStatus = correct ? "correct" : "wrong";
+        }
+        return next;
+      }));
+      setHarmonicStep(nextHarmonicStepAfter(harmonicStep, exercise, harmonicResponseMode));
+      setStats((current) => ({ ...current, correct: current.correct + (correct ? 1 : 0), incorrect: current.incorrect + (correct ? 0 : 1) }));
+      return;
+    }
     if (correct) {
       setAttemptNotes((current) => [...current, { note: expectedNote, status: "correct" }]);
       setNextIndex((current) => current + 1);
@@ -1500,26 +1703,31 @@ export default function IntervalTrainerPage() {
       setNextIndex((current) => current + 1);
       setStats((current) => ({ ...current, incorrect: current.incorrect + 1 }));
     }
-  }, [expectedNote, revealFull]);
+  }, [expectedNote, exercise, harmonicResponseMode, harmonicStep, isHarmonicMode, revealFull]);
 
   const handleRevealFullAnswer = useCallback(() => {
     if (revealFull) return;
-
-    const remainingEntries = exercise.sequence
-      .slice(nextIndex)
-      .map((note) => ({ note, status: "wrong" }));
-
+    if (isHarmonicMode) {
+      let addedErrors = 0;
+      setAttemptNotes((current) => current.map((entry) => {
+        const next = { ...entry };
+        if (!next.lowerVisible) { next.lowerVisible = true; next.lowerStatus = "wrong"; addedErrors += 1; }
+        if (!next.upperVisible) { next.upperVisible = true; next.upperStatus = "wrong"; addedErrors += 1; }
+        return next;
+      }));
+      setHarmonicStep(null);
+      if (addedErrors > 0) setStats((current) => ({ ...current, incorrect: current.incorrect + addedErrors }));
+      setRevealFull(true);
+      return;
+    }
+    const remainingEntries = (exercise.sequence ?? []).slice(nextIndex).map((note) => ({ note, status: "wrong" }));
     if (remainingEntries.length > 0) {
       setAttemptNotes((current) => [...current, ...remainingEntries]);
       setNextIndex(exercise.sequence.length);
-      setStats((current) => ({
-        ...current,
-        incorrect: current.incorrect + remainingEntries.length,
-      }));
+      setStats((current) => ({ ...current, incorrect: current.incorrect + remainingEntries.length }));
     }
-
     setRevealFull(true);
-  }, [exercise.sequence, nextIndex, revealFull]);
+  }, [exercise.sequence, isHarmonicMode, nextIndex, revealFull]);
 
   const toggleInterval = useCallback((intervalKey) => {
     setSelectedIntervalKeys((current) => {
@@ -1559,9 +1767,12 @@ export default function IntervalTrainerPage() {
     setSelectedClefKeys(DEFAULT_CLEF_KEYS);
     setDirectionMode(DEFAULT_DIRECTION_MODE);
     setUseTwelveToneSeries(false);
+    setTrainerMode(DEFAULT_TRAINER_MODE);
+    setHarmonicResponseMode(DEFAULT_HARMONIC_RESPONSE_MODE);
     setExercise(freshExercise);
-    setAttemptNotes([{ note: freshExercise.sequence[0], status: "start" }]);
+    setAttemptNotes(makeInitialAttempts(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
     setNextIndex(1);
+    setHarmonicStep(firstHarmonicStep(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
     setRevealFull(false);
     setStats({ totalSeconds: 0, exercises: 0, correct: 0, incorrect: 0 });
     try {
@@ -1569,6 +1780,22 @@ export default function IntervalTrainerPage() {
       window.localStorage.removeItem(STATS_KEY);
     } catch {}
   }, [stopPlayback]);
+
+  useEffect(() => {
+    if (trainerMode === "harmonic") {
+      setUseTwelveToneSeries(false);
+      setNoteCount((current) => clamp(current, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS));
+    }
+  }, [trainerMode]);
+
+  const instrumentMountRef = useRef(false);
+  useEffect(() => {
+    if (!instrumentMountRef.current) {
+      instrumentMountRef.current = true;
+      return;
+    }
+    stopPlayback();
+  }, [instrument, stopPlayback]);
 
   useEffect(() => {
     return () => {
@@ -1581,7 +1808,7 @@ export default function IntervalTrainerPage() {
     <div className="min-h-screen overflow-x-hidden bg-zinc-100 px-3 py-4 pb-56 text-zinc-950 sm:px-6 sm:py-6 sm:pb-44 md:px-10 md:py-10 md:pb-36">
       <div className="mx-auto max-w-6xl space-y-4 sm:space-y-6">
         <header className="space-y-2">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Entrenador de intervalos melódicos · Método Aural</h1>
+          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Entrenador de intervalos · Método Aural</h1><div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => setTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button></div></div>
         </header>
 
         <section className="grid gap-4 sm:gap-6 xl:grid-cols-[0.95fr_1.05fr]">
@@ -1589,21 +1816,21 @@ export default function IntervalTrainerPage() {
             <div className="space-y-5 sm:space-y-6">
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm font-medium text-zinc-700">Número de notas</span>
-                  <Badge>{safeNoteCount} notas</Badge>
+                  <span className="text-sm font-medium text-zinc-700">{isHarmonicMode ? "Número de pares" : "Número de notas"}</span>
+                  <Badge>{safeNoteCount} {isHarmonicMode ? "pares" : "notas"}</Badge>
                 </div>
                 <input
                   type="range"
-                  min={useTwelveToneSeries ? TWELVE_TONE_MIN_NOTES : MIN_NOTES}
-                  max={useTwelveToneSeries ? TWELVE_TONE_MAX_NOTES : MAX_NOTES}
+                  min={isHarmonicMode ? HARMONIC_MIN_PAIRS : (useTwelveToneSeries ? TWELVE_TONE_MIN_NOTES : MIN_NOTES)}
+                  max={isHarmonicMode ? HARMONIC_MAX_PAIRS : (useTwelveToneSeries ? TWELVE_TONE_MAX_NOTES : MAX_NOTES)}
                   step={1}
                   value={safeNoteCount}
                   onChange={(event) => setNoteCount(Number(event.target.value))}
                   className="w-full accent-sky-600"
                 />
                 <div className="flex justify-between text-xs text-zinc-500">
-                  <span>{useTwelveToneSeries ? 4 : 2}</span>
-                  <span>{useTwelveToneSeries ? 12 : 24}</span>
+                  <span>{isHarmonicMode ? 1 : (useTwelveToneSeries ? 4 : 2)}</span>
+                  <span>{isHarmonicMode ? 12 : (useTwelveToneSeries ? 12 : 24)}</span>
                 </div>
               </div>
 
@@ -1643,12 +1870,10 @@ export default function IntervalTrainerPage() {
                     </SelectionChip>
                   ))}
                 </div>
-                <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3">
-                  <SelectionChip active={useTwelveToneSeries} onClick={() => setUseTwelveToneSeries((current) => !current)} title="Serie dodecafónica">
-                    Serie dodecafónica
-                  </SelectionChip>
+                {!isHarmonicMode ? (<div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3">
+                  <SelectionChip active={useTwelveToneSeries} onClick={() => setUseTwelveToneSeries((current) => !current)} title="Serie dodecafónica">Serie dodecafónica</SelectionChip>
                   <span className="text-xs text-zinc-500">Sin repetir clases de altura; disponible de 4 a 12 notas.</span>
-                </div>
+                </div>) : (<div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3"><SelectionChip active={harmonicResponseMode === "givenBass"} onClick={() => setHarmonicResponseMode("givenBass")}>Bajo dado</SelectionChip><SelectionChip active={harmonicResponseMode === "full"} onClick={() => setHarmonicResponseMode("full")}>Solo bajo inicial</SelectionChip><span className="text-xs text-zinc-500">Responde siempre de inferior a superior.</span></div>)}
                 {!hasSelectedIntervals ? (
                   <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Selecciona al menos un intervalo para generar.</p>
                 ) : useTwelveToneSeries && twelveToneUsableIntervals.length === 0 ? (
@@ -1721,7 +1946,7 @@ export default function IntervalTrainerPage() {
                 <div className="border-t border-zinc-100 px-2 pb-3 pt-1">
                   {exerciseComplete || revealFull ? (
                     <div className="space-y-3">
-                      <TunerPanel notes={exercise.sequence} visible={exerciseComplete || revealFull} />
+                      <TunerPanel notes={getExerciseTuningNotes(exercise)} visible={exerciseComplete || revealFull} />
                       <div className="mx-auto flex w-full max-w-2xl justify-center pt-1">
                         <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
                           <RefreshIcon className="h-4 w-4" /> Siguiente ejercicio
