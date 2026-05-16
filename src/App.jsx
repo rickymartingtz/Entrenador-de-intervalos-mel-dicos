@@ -118,7 +118,10 @@ const SOUNDFONT_LIBRARY = "MusyngKite";
 const SOUNDFONT_BASE_URL = "https://gleitz.github.io/midi-js-soundfonts";
 const PITCH_HISTORY_LEN = 200;
 const TUNER_RANGE_CENTS = 50;
-const IN_TUNE_THRESHOLD = 8;
+const IN_TUNE_THRESHOLD = 10;
+const TUNER_HOLD_OPTIONS = [0.5, 1, 1.5, 2, 3, 4];
+const TUNER_MICRO_GAP_MS = 300;
+const TUNER_COMPLETE_DELAY_MS = 560;
 const PITCH_SMOOTH_ALPHA = 0.35;
 
 const CLEFS = [
@@ -1141,7 +1144,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
   );
 }
 
-function TunerStrip({ cents, label, sublabel, micEnabled, active, centerFreq, pitchHistoryRef, pitchHistoryIdxRef, compact = false, holdProgress = 0 }) {
+function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRef, centsHistoryIdxRef, compact = false, holdProgress = 0, completed = false }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -1161,91 +1164,101 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centerFreq, pi
 
     ctx.clearRect(0, 0, w, h);
 
+    const yForCents = (value) => h / 2 - (clamp(value, -TUNER_RANGE_CENTS, TUNER_RANGE_CENTS) / TUNER_RANGE_CENTS) * (h / 2 - 5);
+    const greenTop = yForCents(IN_TUNE_THRESHOLD);
+    const greenBottom = yForCents(-IN_TUNE_THRESHOLD);
+
     const gradient = ctx.createLinearGradient(0, 0, 0, h);
-    gradient.addColorStop(0, "rgba(244,63,94,0.10)");
-    gradient.addColorStop(0.34, "rgba(244,63,94,0.04)");
-    gradient.addColorStop(0.45, "rgba(16,185,129,0.12)");
-    gradient.addColorStop(0.50, "rgba(16,185,129,0.26)");
-    gradient.addColorStop(0.55, "rgba(16,185,129,0.12)");
-    gradient.addColorStop(0.66, "rgba(244,63,94,0.04)");
-    gradient.addColorStop(1, "rgba(244,63,94,0.10)");
+    gradient.addColorStop(0, "rgba(248,113,113,0.11)");
+    gradient.addColorStop(0.36, "rgba(248,113,113,0.035)");
+    gradient.addColorStop(0.50, "rgba(16,185,129,0.07)");
+    gradient.addColorStop(0.64, "rgba(248,113,113,0.035)");
+    gradient.addColorStop(1, "rgba(248,113,113,0.11)");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, w, h);
 
-    ctx.strokeStyle = "rgba(5,150,105,0.42)";
+    ctx.fillStyle = completed ? "rgba(16,185,129,0.30)" : "rgba(16,185,129,0.20)";
+    ctx.fillRect(0, greenTop, w, Math.max(2, greenBottom - greenTop));
+
+    ctx.strokeStyle = "rgba(15,23,42,0.08)";
     ctx.lineWidth = 1;
+    [-50, -25, 0, 25, 50].forEach((mark) => {
+      const y = yForCents(mark);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    });
+
+    ctx.strokeStyle = completed ? "rgba(5,150,105,0.70)" : "rgba(5,150,105,0.45)";
+    ctx.lineWidth = completed ? 2 : 1.25;
     ctx.beginPath();
     ctx.moveTo(0, h / 2);
     ctx.lineTo(w, h / 2);
     ctx.stroke();
 
-    const inTunePx = (IN_TUNE_THRESHOLD / TUNER_RANGE_CENTS) * (h / 2 - 4);
-    ctx.strokeStyle = "rgba(5,150,105,0.24)";
-    ctx.beginPath();
-    ctx.moveTo(0, h / 2 - inTunePx);
-    ctx.lineTo(w, h / 2 - inTunePx);
-    ctx.moveTo(0, h / 2 + inTunePx);
-    ctx.lineTo(w, h / 2 + inTunePx);
-    ctx.stroke();
-
-    if (active && centerFreq && pitchHistoryRef?.current) {
-      const buf = pitchHistoryRef.current;
+    if (active && centsHistoryRef?.current) {
+      const buf = centsHistoryRef.current;
       const len = buf.length;
-      const idx = pitchHistoryIdxRef.current;
+      const idx = centsHistoryIdxRef.current;
       let drawing = false;
-      let lastWasInTune = false;
+      let previousInTune = false;
       for (let i = 0; i < len; i += 1) {
         const j = (idx + i) % len;
-        const frequency = buf[j];
-        if (!Number.isFinite(frequency) || frequency <= 0) {
+        const value = buf[j];
+        if (!Number.isFinite(value)) {
           if (drawing) ctx.stroke();
           drawing = false;
           continue;
         }
-        const rawCents = 1200 * Math.log2(frequency / centerFreq);
-        const clamped = clamp(rawCents, -TUNER_RANGE_CENTS, TUNER_RANGE_CENTS);
         const x = (i / Math.max(1, len - 1)) * w;
-        const y = h / 2 - (clamped / TUNER_RANGE_CENTS) * (h / 2 - 4);
-        const isInTune = Math.abs(rawCents) < IN_TUNE_THRESHOLD;
+        const y = yForCents(value);
+        const isInTune = Math.abs(value) <= IN_TUNE_THRESHOLD;
         if (!drawing) {
           ctx.beginPath();
           ctx.moveTo(x, y);
           ctx.strokeStyle = isInTune ? "#047857" : "#0f172a";
-          ctx.lineWidth = isInTune ? 2 : 1.6;
+          ctx.lineWidth = isInTune ? 2 : 1.5;
           drawing = true;
-        } else if (isInTune !== lastWasInTune) {
+        } else if (isInTune !== previousInTune) {
           ctx.lineTo(x, y);
           ctx.stroke();
           ctx.beginPath();
           ctx.moveTo(x, y);
           ctx.strokeStyle = isInTune ? "#047857" : "#0f172a";
-          ctx.lineWidth = isInTune ? 2 : 1.6;
+          ctx.lineWidth = isInTune ? 2 : 1.5;
         } else {
           ctx.lineTo(x, y);
         }
-        lastWasInTune = isInTune;
+        previousInTune = isInTune;
       }
       if (drawing) ctx.stroke();
     }
-  }, [active, centerFreq, cents, micEnabled, pitchHistoryIdxRef, pitchHistoryRef]);
+  }, [active, cents, centsHistoryIdxRef, centsHistoryRef, completed, micEnabled]);
 
   const valid = cents !== null && cents !== undefined && !Number.isNaN(cents);
   const clamped = valid ? clamp(cents, -TUNER_RANGE_CENTS, TUNER_RANGE_CENTS) : 0;
   const linePct = 50 + (clamped / TUNER_RANGE_CENTS) * 50;
-  const inTune = valid && Math.abs(cents) < IN_TUNE_THRESHOLD;
+  const inTune = valid && Math.abs(cents) <= IN_TUNE_THRESHOLD;
+  const bandTop = 50 - (IN_TUNE_THRESHOLD / TUNER_RANGE_CENTS) * 50;
+  const bandHeight = (IN_TUNE_THRESHOLD * 2 / TUNER_RANGE_CENTS) * 50;
 
   return (
-    <div className={`rounded-xl border bg-white p-2 transition ${inTune ? "border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]" : "border-zinc-200"}`}>
+    <div className={`rounded-xl border bg-white p-2 transition ${completed ? "border-emerald-400 bg-emerald-50 shadow-[0_0_0_1px_rgba(16,185,129,0.22)]" : inTune ? "border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]" : "border-zinc-200"}`}>
       <div className="mb-1 flex items-baseline justify-between gap-3">
         <div className="min-w-0">
           <p className={`truncate font-semibold leading-none ${compact ? "text-xl" : "text-2xl"} ${valid || micEnabled ? "text-zinc-950" : "text-zinc-400"}`}>{label || "—"}</p>
           {sublabel ? <p className="mt-1 truncate text-[10px] font-medium text-zinc-500">{sublabel}</p> : null}
         </div>
-        <p className={`shrink-0 text-xs font-semibold tabular-nums ${inTune ? "text-emerald-700" : valid ? "text-zinc-500" : "text-zinc-300"}`}>{valid ? `${cents >= 0 ? "+" : ""}${cents.toFixed(1)}¢` : "—"}</p>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {completed ? <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">✓</span> : null}
+          <p className={`text-xs font-semibold tabular-nums ${inTune ? "text-emerald-700" : valid ? "text-zinc-500" : "text-zinc-300"}`}>{valid ? `${cents >= 0 ? "+" : ""}${cents.toFixed(1)}¢` : "—"}</p>
+        </div>
       </div>
 
       <div className="relative h-12 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50">
         <canvas ref={canvasRef} className="block h-full w-full" />
+        <div className="pointer-events-none absolute left-0 right-0 rounded-sm bg-emerald-300/28" style={{ top: `${bandTop}%`, height: `${bandHeight}%` }} />
         <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-zinc-900/45" />
         {valid ? (
           <div
@@ -1255,7 +1268,7 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centerFreq, pi
         ) : null}
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200">
-        <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-100 ease-linear" style={{ width: `${Math.round(holdProgress * 100)}%` }} />
+        <div className={`h-full rounded-full transition-[width,background-color] duration-150 ease-linear ${completed ? "bg-emerald-600" : "bg-emerald-500"}`} style={{ width: `${Math.round(holdProgress * 100)}%` }} />
       </div>
     </div>
   );
@@ -1267,12 +1280,14 @@ function TunerPanel({ notes = [], visible = false }) {
   const sourceRef = useRef(null);
   const streamRef = useRef(null);
   const timerRef = useRef(null);
-  const smoothedFreqRef = useRef(null);
-  const pitchHistoryRef = useRef(new Float32Array(PITCH_HISTORY_LEN).fill(NaN));
-  const pitchHistoryIdxRef = useRef(0);
+  const centsHistoryRef = useRef(new Float32Array(PITCH_HISTORY_LEN).fill(NaN));
+  const centsHistoryIdxRef = useRef(0);
   const accumulatedHoldMsRef = useRef(0);
   const lastCenteredAtRef = useRef(null);
+  const lastDetectionAtRef = useRef(null);
   const completedRef = useRef(new Set());
+  const completionTimeoutRef = useRef(null);
+  const isCompletingRef = useRef(false);
   const modeRef = useRef("study");
   const targetIndexRef = useRef(0);
   const notesRef = useRef(notes);
@@ -1286,12 +1301,12 @@ function TunerPanel({ notes = [], visible = false }) {
   const [cents, setCents] = useState(null);
   const [holdSeconds, setHoldSeconds] = useState(2);
   const [holdProgress, setHoldProgress] = useState(0);
-  const [centerMidi, setCenterMidi] = useState(null);
+  const [completedFlash, setCompletedFlash] = useState(false);
 
   const targetNote = notes[targetIndex] ?? null;
-  const centerFreq = centerMidi != null ? midiToFreq(centerMidi) : null;
   const detectedMidi = detectedHz ? frequencyToNearestMidi(detectedHz) : null;
-  const inTune = Number.isFinite(cents) && Math.abs(cents) < IN_TUNE_THRESHOLD && (mode !== "study" || !targetNote || pitchClassOf(detectedMidi) === pitchClassOf(targetNote));
+  const samePitchClass = mode !== "study" || !targetNote || (detectedMidi != null && pitchClassOf(detectedMidi) === pitchClassOf(targetNote));
+  const inTune = Number.isFinite(cents) && Math.abs(cents) <= IN_TUNE_THRESHOLD && samePitchClass;
   const activeNoteName = mode === "study" && targetNote ? targetNote.label : detectedLabel;
   const activeTuningRole = mode === "study" && targetNote?.tuningRole ? targetNote.tuningRole : "";
 
@@ -1300,20 +1315,39 @@ function TunerPanel({ notes = [], visible = false }) {
   useEffect(() => { notesRef.current = notes; }, [notes]);
   useEffect(() => { holdSecondsRef.current = holdSeconds; }, [holdSeconds]);
 
+  useEffect(() => {
+    setHoldProgress(Math.min(1, accumulatedHoldMsRef.current / (holdSeconds * 1000)));
+  }, [holdSeconds]);
+
+  const resetCurrentTargetProgress = useCallback(() => {
+    if (completionTimeoutRef.current) window.clearTimeout(completionTimeoutRef.current);
+    completionTimeoutRef.current = null;
+    isCompletingRef.current = false;
+    setCompletedFlash(false);
+    setHoldProgress(0);
+    accumulatedHoldMsRef.current = 0;
+    lastCenteredAtRef.current = null;
+    centsHistoryRef.current.fill(NaN);
+    centsHistoryIdxRef.current = 0;
+  }, []);
+
   const resetTunerState = useCallback(() => {
+    if (completionTimeoutRef.current) window.clearTimeout(completionTimeoutRef.current);
+    completionTimeoutRef.current = null;
+    isCompletingRef.current = false;
     setTargetIndex(0);
     targetIndexRef.current = 0;
     setDetectedHz(null);
     setDetectedLabel("—");
     setCents(null);
     setHoldProgress(0);
-    setCenterMidi(null);
+    setCompletedFlash(false);
     completedRef.current = new Set();
-    smoothedFreqRef.current = null;
     accumulatedHoldMsRef.current = 0;
     lastCenteredAtRef.current = null;
-    pitchHistoryRef.current.fill(NaN);
-    pitchHistoryIdxRef.current = 0;
+    lastDetectionAtRef.current = null;
+    centsHistoryRef.current.fill(NaN);
+    centsHistoryIdxRef.current = 0;
   }, []);
 
   useEffect(() => { resetTunerState(); }, [notes, resetTunerState]);
@@ -1321,6 +1355,8 @@ function TunerPanel({ notes = [], visible = false }) {
   const stopListening = useCallback(() => {
     if (timerRef.current) window.clearInterval(timerRef.current);
     timerRef.current = null;
+    if (completionTimeoutRef.current) window.clearTimeout(completionTimeoutRef.current);
+    completionTimeoutRef.current = null;
     try { sourceRef.current?.disconnect(); } catch {}
     try { streamRef.current?.getTracks()?.forEach((track) => track.stop()); } catch {}
     sourceRef.current = null;
@@ -1328,24 +1364,47 @@ function TunerPanel({ notes = [], visible = false }) {
     analyserRef.current = null;
     setIsListening(false);
     lastCenteredAtRef.current = null;
+    isCompletingRef.current = false;
   }, []);
 
   useEffect(() => () => stopListening(), [stopListening]);
 
+  const setTargetManually = useCallback((nextIndex) => {
+    const list = notesRef.current ?? [];
+    const bounded = clamp(nextIndex, 0, Math.max(0, list.length - 1));
+    targetIndexRef.current = bounded;
+    setTargetIndex(bounded);
+    resetCurrentTargetProgress();
+  }, [resetCurrentTargetProgress]);
+
   const advanceTarget = useCallback(() => {
     const list = notesRef.current ?? [];
     completedRef.current.add(targetIndexRef.current);
-    setTargetIndex((current) => {
-      const next = current < list.length - 1 ? current + 1 : current;
-      targetIndexRef.current = next;
-      return next;
-    });
-    setHoldProgress(0);
-    accumulatedHoldMsRef.current = 0;
-    lastCenteredAtRef.current = null;
-    pitchHistoryRef.current.fill(NaN);
-    pitchHistoryIdxRef.current = 0;
-  }, []);
+    const next = targetIndexRef.current < list.length - 1 ? targetIndexRef.current + 1 : targetIndexRef.current;
+    targetIndexRef.current = next;
+    setTargetIndex(next);
+    resetCurrentTargetProgress();
+  }, [resetCurrentTargetProgress]);
+
+  const completeCurrentTarget = useCallback(() => {
+    if (isCompletingRef.current) return;
+    isCompletingRef.current = true;
+    completedRef.current.add(targetIndexRef.current);
+    setCompletedFlash(true);
+    setHoldProgress(1);
+    if (completionTimeoutRef.current) window.clearTimeout(completionTimeoutRef.current);
+    completionTimeoutRef.current = window.setTimeout(() => {
+      const list = notesRef.current ?? [];
+      if (targetIndexRef.current < list.length - 1) {
+        advanceTarget();
+      } else {
+        isCompletingRef.current = false;
+        setCompletedFlash(true);
+        accumulatedHoldMsRef.current = holdSecondsRef.current * 1000;
+        setHoldProgress(1);
+      }
+    }, TUNER_COMPLETE_DELAY_MS);
+  }, [advanceTarget]);
 
   const analyse = useCallback(() => {
     const analyser = analyserRef.current;
@@ -1354,65 +1413,57 @@ function TunerPanel({ notes = [], visible = false }) {
 
     const buffer = new Float32Array(analyser.fftSize);
     analyser.getFloatTimeDomainData(buffer);
-    const rawFreq = autoCorrelatePitch(buffer, ctx.sampleRate, 0.15);
+    const freq = autoCorrelatePitch(buffer, ctx.sampleRate, 0.15);
     const now = performance.now();
-
-    let freq = null;
-    if (rawFreq) {
-      if (smoothedFreqRef.current === null) smoothedFreqRef.current = rawFreq;
-      else {
-        const centsJump = Math.abs(1200 * Math.log2(rawFreq / smoothedFreqRef.current));
-        if (centsJump > 50) smoothedFreqRef.current = rawFreq;
-        else smoothedFreqRef.current = smoothedFreqRef.current * (1 - PITCH_SMOOTH_ALPHA) + rawFreq * PITCH_SMOOTH_ALPHA;
-      }
-      freq = smoothedFreqRef.current;
-    } else {
-      smoothedFreqRef.current = null;
-    }
-
-    pitchHistoryRef.current[pitchHistoryIdxRef.current] = freq || NaN;
-    pitchHistoryIdxRef.current = (pitchHistoryIdxRef.current + 1) % PITCH_HISTORY_LEN;
+    const activeMode = modeRef.current;
+    const list = notesRef.current ?? [];
+    const activeTarget = list[targetIndexRef.current] ?? null;
 
     if (!freq) {
       lastCenteredAtRef.current = null;
+      centsHistoryRef.current[centsHistoryIdxRef.current] = NaN;
+      centsHistoryIdxRef.current = (centsHistoryIdxRef.current + 1) % PITCH_HISTORY_LEN;
+      const lastDetection = lastDetectionAtRef.current;
+      if (lastDetection && now - lastDetection <= TUNER_MICRO_GAP_MS) return;
       setDetectedHz(null);
       setCents(null);
       return;
     }
 
+    lastDetectionAtRef.current = now;
+
     const nearestMidi = frequencyToNearestMidi(freq);
-    const activeMode = modeRef.current;
-    const list = notesRef.current ?? [];
-    const activeTarget = list[targetIndexRef.current] ?? null;
     let rawCents = null;
-    let displayMidi = nearestMidi;
+    let noteIsRelevant = true;
 
     if (activeMode === "study" && activeTarget) {
       rawCents = centsOffFromPitchClass(freq, activeTarget.midi);
-      displayMidi = nearestMidiForPitchClass(pitchClassOf(activeTarget), nearestMidi);
+      noteIsRelevant = pitchClassOf(nearestMidi) === pitchClassOf(activeTarget);
     } else {
       rawCents = centsOffFromNearestChromatic(freq);
-      displayMidi = nearestMidi;
+      noteIsRelevant = true;
     }
 
     if (rawCents == null) return;
 
+    centsHistoryRef.current[centsHistoryIdxRef.current] = rawCents;
+    centsHistoryIdxRef.current = (centsHistoryIdxRef.current + 1) % PITCH_HISTORY_LEN;
+
     setDetectedHz(freq);
     setDetectedLabel(midiToSimpleNote(nearestMidi).label);
     setCents(rawCents);
-    setCenterMidi(displayMidi);
 
     if (activeMode === "study" && activeTarget) {
-      const samePitchClass = pitchClassOf(nearestMidi) === pitchClassOf(activeTarget);
-      const centered = samePitchClass && Math.abs(rawCents) < IN_TUNE_THRESHOLD;
+      if (isCompletingRef.current) return;
+      const centered = noteIsRelevant && Math.abs(rawCents) <= IN_TUNE_THRESHOLD;
       if (centered) {
         const last = lastCenteredAtRef.current;
-        const delta = last ? Math.min(90, Math.max(0, now - last)) : 0;
+        const delta = last ? Math.min(100, Math.max(0, now - last)) : 0;
         accumulatedHoldMsRef.current += delta;
         lastCenteredAtRef.current = now;
         const progress = Math.min(1, accumulatedHoldMsRef.current / (holdSecondsRef.current * 1000));
         setHoldProgress(progress);
-        if (progress >= 1) advanceTarget();
+        if (progress >= 1) completeCurrentTarget();
       } else {
         lastCenteredAtRef.current = null;
         setHoldProgress(Math.min(1, accumulatedHoldMsRef.current / (holdSecondsRef.current * 1000)));
@@ -1420,8 +1471,9 @@ function TunerPanel({ notes = [], visible = false }) {
     } else {
       lastCenteredAtRef.current = null;
       setHoldProgress(0);
+      setCompletedFlash(false);
     }
-  }, [advanceTarget]);
+  }, [completeCurrentTarget]);
 
   const startListening = useCallback(async () => {
     if (isListening && analyserRef.current) return;
@@ -1442,6 +1494,7 @@ function TunerPanel({ notes = [], visible = false }) {
       sourceRef.current = source;
       analyserRef.current = analyser;
       setIsListening(true);
+      lastDetectionAtRef.current = null;
       if (timerRef.current) window.clearInterval(timerRef.current);
       timerRef.current = window.setInterval(analyse, 50);
     } catch (error) {
@@ -1453,7 +1506,7 @@ function TunerPanel({ notes = [], visible = false }) {
   if (!visible || !notes.length) return null;
 
   return (
-    <div className={`mx-auto mt-2 w-full max-w-2xl rounded-2xl border p-2.5 transition ${inTune ? "border-emerald-300 bg-emerald-50/70" : "border-zinc-200 bg-zinc-50"}`}>
+    <div className={`mx-auto mt-2 w-full max-w-2xl rounded-2xl border p-2.5 transition ${completedFlash ? "border-emerald-400 bg-emerald-50/90" : inTune ? "border-emerald-300 bg-emerald-50/70" : "border-zinc-200 bg-zinc-50"}`}>
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
           <button type="button" onClick={() => setMode("study")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${mode === "study" ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}>Estudio</button>
@@ -1464,26 +1517,37 @@ function TunerPanel({ notes = [], visible = false }) {
         <div className="text-center">
           {mode === "study" ? (
             <div className="flex items-center justify-center gap-2">
-              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); pitchHistoryRef.current.fill(NaN); setTargetIndex((i) => { const next = Math.max(0, i - 1); targetIndexRef.current = next; return next; }); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
-              <div className="min-w-[86px] text-center">
-                <div className="text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
+              <button type="button" onClick={() => setTargetManually(targetIndexRef.current - 1)} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
+              <div className="min-w-[92px] text-center">
+                <div className={`text-2xl font-bold leading-none tracking-tight sm:text-3xl ${completedFlash ? "text-emerald-700" : "text-zinc-950"}`}>{activeNoteName}</div>
                 {activeTuningRole ? <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">{activeTuningRole}</div> : null}
               </div>
-              <button type="button" onClick={() => { accumulatedHoldMsRef.current = 0; setHoldProgress(0); pitchHistoryRef.current.fill(NaN); setTargetIndex((i) => { const next = Math.min(notes.length - 1, i + 1); targetIndexRef.current = next; return next; }); }} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">→</button>
+              <button type="button" onClick={() => setTargetManually(targetIndexRef.current + 1)} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">→</button>
             </div>
           ) : (
-            <div className="min-w-[86px] text-center text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
+            <div className="min-w-[92px] text-center text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
           )}
-          <div className="mt-1 text-[11px] font-medium text-zinc-500">{Number.isFinite(cents) ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents` : "—"}</div>
+          <div className="mt-1 flex items-center justify-center gap-2 text-[11px] font-medium text-zinc-500">
+            <span>{Number.isFinite(cents) ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents` : "—"}</span>
+            {mode === "study" && detectedLabel !== "—" ? <span className="text-zinc-400">detectada: {detectedLabel}</span> : null}
+            {completedFlash ? <span className="font-bold text-emerald-700">✓</span> : null}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           {mode === "study" ? (
-            <>
-              <button type="button" onClick={() => setHoldSeconds((s) => clamp(s - 0.5, 0.5, 5))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-[11px] text-zinc-700">−</button>
-              <span className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700">{holdSeconds.toFixed(1)} s</span>
-              <button type="button" onClick={() => setHoldSeconds((s) => clamp(s + 0.5, 0.5, 5))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-[11px] text-zinc-700">+</button>
-            </>
+            <div className="flex flex-wrap justify-end gap-1">
+              {TUNER_HOLD_OPTIONS.map((seconds) => (
+                <button
+                  type="button"
+                  key={seconds}
+                  onClick={() => setHoldSeconds(seconds)}
+                  className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${holdSeconds === seconds ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}
+                >
+                  {seconds}s
+                </button>
+              ))}
+            </div>
           ) : null}
           {isListening ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">Mic activo</span> : <button type="button" onClick={startListening} className="rounded-full border border-zinc-950 bg-zinc-950 px-3 py-1 text-[11px] font-semibold text-white">Activar micrófono</button>}
         </div>
@@ -1492,13 +1556,13 @@ function TunerPanel({ notes = [], visible = false }) {
       <TunerStrip
         cents={cents}
         label={mode === "study" ? activeNoteName : detectedLabel}
-        sublabel={mode === "study" ? "nota objetivo en cualquier octava" : "nota más cercana en 12-TET"}
+        sublabel={mode === "study" ? "objetivo · cualquier octava" : "nota más cercana en 12-TET"}
         micEnabled={isListening}
-        active={isListening && !!centerFreq}
-        centerFreq={centerFreq}
-        pitchHistoryRef={pitchHistoryRef}
-        pitchHistoryIdxRef={pitchHistoryIdxRef}
+        active={isListening}
+        centsHistoryRef={centsHistoryRef}
+        centsHistoryIdxRef={centsHistoryIdxRef}
         holdProgress={mode === "study" ? holdProgress : 0}
+        completed={completedFlash}
         compact
       />
     </div>
