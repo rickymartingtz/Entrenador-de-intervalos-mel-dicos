@@ -591,7 +591,7 @@ function scoreFromStats(stats) {
 }
 
 function Badge({ children }) {
-  return <span className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">{children}</span>;
+  return <span className="rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 sm:px-3 sm:text-xs">{children}</span>;
 }
 
 function SelectionChip({ active, onClick, children, disabled = false, title }) {
@@ -602,7 +602,7 @@ function SelectionChip({ active, onClick, children, disabled = false, title }) {
       disabled={disabled}
       title={title}
       aria-label={title}
-      className={`rounded-full border px-3 py-2 text-sm transition ${
+      className={`min-h-[38px] rounded-full border px-2.5 py-1.5 text-xs transition sm:px-3 sm:py-2 sm:text-sm ${
         active
           ? "border-zinc-900 bg-zinc-900 text-white"
           : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500"
@@ -619,7 +619,7 @@ function ActionButton({ active, onClick, children, disabled = false }) {
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-2xl border px-5 py-3 text-sm font-semibold transition ${
+      className={`inline-flex min-h-[44px] w-full items-center justify-center gap-2 whitespace-nowrap rounded-2xl border px-4 py-3 text-sm font-semibold transition sm:w-auto sm:px-5 ${
         active
           ? "border-zinc-950 bg-zinc-950 text-white shadow-sm"
           : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-100"
@@ -637,7 +637,7 @@ function ClefChip({ clef, active, onClick }) {
       onClick={onClick}
       title={clef.label}
       aria-label={clef.label}
-      className={`inline-flex min-h-[42px] items-center justify-center rounded-full border px-4 py-2 text-sm font-medium transition ${
+      className={`inline-flex min-h-[38px] items-center justify-center rounded-full border px-3 py-2 text-xs font-medium transition sm:min-h-[42px] sm:px-4 sm:text-sm ${
         active
           ? "border-zinc-900 bg-zinc-900 text-white"
           : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-50"
@@ -682,12 +682,15 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
 
       try {
         const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental } = VF;
-        const width = Math.max(650, 140 + entries.length * 74);
-        const height = 152;
+        const availableWidth = Math.max(320, containerRef.current.parentElement?.clientWidth ?? 650);
+        const compact = availableWidth < 520;
+        const baseWidth = Math.min(650, Math.max(340, availableWidth - 8));
+        const width = Math.max(baseWidth, 132 + entries.length * (compact ? 58 : 74));
+        const height = compact ? 142 : 152;
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
         const context = renderer.getContext();
-        const stave = new Stave(18, 28, width - 38);
+        const stave = new Stave(compact ? 10 : 18, compact ? 24 : 28, width - (compact ? 20 : 38));
         stave.addClef(clef.vex);
         stave.setContext(context).draw();
 
@@ -714,17 +717,19 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
         if (typeof voice.setMode === "function" && Voice.Mode) voice.setMode(Voice.Mode.SOFT);
         if (typeof voice.setStrict === "function") voice.setStrict(false);
         voice.addTickables(vexNotes);
-        new Formatter().joinVoices([voice]).format([voice], width - 125);
+        new Formatter().joinVoices([voice]).format([voice], width - (compact ? 96 : 125));
         voice.draw(context, stave);
 
         const svg = containerRef.current.querySelector("svg");
         const ns = "http://www.w3.org/2000/svg";
         if (svg) {
+          svg.setAttribute("style", "display:block");
+
           if (clef.tag) {
             const tag = document.createElementNS(ns, "text");
-            tag.setAttribute("x", "56");
-            tag.setAttribute("y", "30");
-            tag.setAttribute("font-size", "13");
+            tag.setAttribute("x", compact ? "46" : "56");
+            tag.setAttribute("y", compact ? "27" : "30");
+            tag.setAttribute("font-size", compact ? "11" : "13");
             tag.setAttribute("font-weight", "700");
             tag.setAttribute("fill", "#52525b");
             tag.textContent = clef.tag;
@@ -778,7 +783,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
 
   return (
     <div className="space-y-2">
-      <div className="max-w-full overflow-x-auto overflow-y-hidden bg-white px-2 pt-2 pb-1">
+      <div className="max-w-full touch-pan-x overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-xl bg-white px-1 pt-2 pb-1 sm:px-2">
         <div ref={containerRef} className="mx-auto w-fit min-w-max" />
       </div>
       {renderError ? <p className="text-sm text-red-600">{renderError}</p> : null}
@@ -790,16 +795,16 @@ function PianoKeyboard({ onPress, disabled = false }) {
   const whiteKeys = PIANO_KEYS.filter((key) => key.type === "white");
   const blackKeys = PIANO_KEYS.filter((key) => key.type === "black");
   return (
-    <div className="mx-auto w-full max-w-2xl pt-4">
-      <div className="relative h-32 w-full select-none overflow-visible rounded-b-2xl border border-zinc-300 bg-zinc-200 p-2 shadow-sm">
-        <div className="flex h-full gap-1">
+    <div className="mx-auto w-full max-w-2xl pt-3 sm:pt-4">
+      <div className="relative h-28 w-full select-none overflow-visible rounded-b-2xl border border-zinc-300 bg-zinc-200 p-1.5 shadow-sm sm:h-32 sm:p-2">
+        <div className="flex h-full gap-0.5 sm:gap-1">
           {whiteKeys.map((key) => (
             <button
               type="button"
               key={key.pc}
               disabled={disabled}
               onClick={() => onPress(key.pc)}
-              className={`relative flex flex-1 items-end justify-center rounded-b-xl border border-zinc-300 bg-white pb-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+              className={`relative flex flex-1 items-end justify-center rounded-b-xl border border-zinc-300 bg-white pb-2 text-[10px] font-semibold text-zinc-700 transition hover:bg-zinc-100 sm:pb-3 sm:text-xs ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
             >
               {key.display}
             </button>
@@ -811,10 +816,10 @@ function PianoKeyboard({ onPress, disabled = false }) {
             key={key.pc}
             disabled={disabled}
             onClick={() => onPress(key.pc)}
-            className={`absolute top-2 z-10 flex h-[74px] w-[9.5%] items-start justify-center rounded-b-lg bg-zinc-950 px-1 pt-2 text-center text-[9px] font-semibold leading-tight text-white transition hover:bg-zinc-800 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+            className={`absolute top-1.5 z-10 flex h-[62px] w-[9.5%] items-start justify-center rounded-b-lg bg-zinc-950 px-1 pt-2 text-center text-[8px] font-semibold leading-tight text-white transition hover:bg-zinc-800 sm:top-2 sm:h-[74px] sm:text-[9px] ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
             style={{ left: key.left }}
           >
-            <span className="absolute -top-6 left-1/2 w-20 -translate-x-1/2 rounded-full border border-zinc-200 bg-white px-2 py-1 text-[10px] font-semibold leading-none text-zinc-700 shadow-sm">
+            <span className="absolute -top-5 left-1/2 w-14 -translate-x-1/2 rounded-full border border-zinc-200 bg-white px-1 py-1 text-[8px] font-semibold leading-none text-zinc-700 shadow-sm sm:-top-6 sm:w-20 sm:px-2 sm:text-[10px]">
               {key.display}
             </span>
           </button>
@@ -836,9 +841,9 @@ function StatBox({ label, value }) {
 
 function BottomStat({ label, value }) {
   return (
-    <div className="min-w-0 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-      <p className="truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{label}</p>
-      <p className="truncate text-base font-bold text-zinc-900">{value}</p>
+    <div className="min-w-[92px] rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-2 sm:min-w-0 sm:px-3">
+      <p className="truncate text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500 sm:text-[10px] sm:tracking-[0.16em]">{label}</p>
+      <p className="truncate text-sm font-bold text-zinc-900 sm:text-base">{value}</p>
     </div>
   );
 }
@@ -1219,15 +1224,15 @@ export default function IntervalTrainerPage() {
   }, [stopPlayback]);
 
   return (
-    <div className="min-h-screen bg-zinc-100 p-6 pb-32 text-zinc-950 md:p-10 md:pb-32">
-      <div className="mx-auto max-w-5xl space-y-6">
+    <div className="min-h-screen overflow-x-hidden bg-zinc-100 px-3 py-4 pb-56 text-zinc-950 sm:px-6 sm:py-6 sm:pb-44 md:px-10 md:py-10 md:pb-36">
+      <div className="mx-auto max-w-6xl space-y-4 sm:space-y-6">
         <header className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Entrenador de intervalos melódicos · Método Aural</h1>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Entrenador de intervalos melódicos · Método Aural</h1>
         </header>
 
-        <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <div className="space-y-6">
+        <section className="grid gap-4 sm:gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
+            <div className="space-y-5 sm:space-y-6">
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-sm font-medium text-zinc-700">Número de notas</span>
@@ -1342,8 +1347,8 @@ export default function IntervalTrainerPage() {
           </div>
 
           <div className="space-y-6">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="mb-4 flex flex-wrap gap-3">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
+              <div className="mb-4 grid gap-2 sm:flex sm:flex-wrap sm:gap-3">
                 <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
                   <RefreshIcon className="h-4 w-4" /> Generar nueva sucesión
                 </ActionButton>
@@ -1357,7 +1362,7 @@ export default function IntervalTrainerPage() {
                 </ActionButton>
               </div>
 
-              <div className="rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm">
+              <div className="rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-sm sm:p-2">
                 <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} />
                 <div className="border-t border-zinc-100 px-2 pb-3 pt-1">
                   {exerciseComplete || revealFull ? (
@@ -1373,8 +1378,8 @@ export default function IntervalTrainerPage() {
               </div>
 
               {exerciseComplete || revealFull ? (
-                <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="mt-4 grid gap-3 sm:gap-4 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
                     <p className="text-sm font-medium text-zinc-500">Modelos reconocibles en la sucesión</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {modelLabels.length > 0 ? (
@@ -1385,7 +1390,7 @@ export default function IntervalTrainerPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
                     <p className="text-sm font-medium text-zinc-500">Saltos entre notas consecutivas</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {intervalLabels.map((item, index) => <Badge key={`${item}-${index}`}>{item}</Badge>)}
@@ -1398,8 +1403,8 @@ export default function IntervalTrainerPage() {
         </section>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-4 py-3 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur">
-        <div className="mx-auto grid max-w-5xl grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto]">
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-3 py-2 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur sm:px-4 sm:py-3">
+        <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto]">
           <BottomStat label="Tiempo" value={formatTime(stats.totalSeconds)} />
           <BottomStat label="Ejercicios" value={stats.exercises} />
           <BottomStat label="Aciertos" value={stats.correct} />
@@ -1408,7 +1413,7 @@ export default function IntervalTrainerPage() {
           <button
             type="button"
             onClick={resetEverything}
-            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 sm:col-span-3 lg:col-span-1"
+            className="inline-flex min-w-[110px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 sm:col-span-3 sm:min-w-0 lg:col-span-1"
           >
             <ResetIcon className="h-4 w-4" /> Reiniciar
           </button>
