@@ -114,15 +114,15 @@ const SOUNDFONT_LIBRARY = "MusyngKite";
 const SOUNDFONT_BASE_URL = "https://gleitz.github.io/midi-js-soundfonts";
 
 const CLEFS = [
-  { key: "treble", label: "Clave de sol", symbol: "𝄞", tag: "", vex: "treble", minMidi: 60, maxMidi: 88, centerMinMidi: 65, centerMaxMidi: 79, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
-  { key: "treble8va", label: "Clave de sol 8va alta", symbol: "𝄞", tag: "8va", vex: "treble", displayOctaveShift: -1, minMidi: 72, maxMidi: 100, centerMinMidi: 77, centerMaxMidi: 91, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
-  { key: "treble15ma", label: "Clave de sol 15ma alta", symbol: "𝄞", tag: "15ma", vex: "treble", displayOctaveShift: -2, minMidi: 84, maxMidi: 108, centerMinMidi: 84, centerMaxMidi: 100, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
-  { key: "soprano", label: "Clave de do en 1ra", symbol: "𝄡", tag: "I", vex: "soprano", minMidi: 57, maxMidi: 81, centerMinMidi: 62, centerMaxMidi: 74, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 100 },
-  { key: "mezzo", label: "Clave de do en 2da", symbol: "𝄡", tag: "II", vex: "mezzo-soprano", minMidi: 55, maxMidi: 79, centerMinMidi: 60, centerMaxMidi: 72, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 86 },
-  { key: "alto", label: "Clave de do en 3ra", symbol: "𝄡", tag: "III", vex: "alto", minMidi: 53, maxMidi: 77, centerMinMidi: 58, centerMaxMidi: 70, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 72 },
-  { key: "tenor", label: "Clave de do en 4ta", symbol: "𝄡", tag: "IV", vex: "tenor", minMidi: 48, maxMidi: 72, centerMinMidi: 53, centerMaxMidi: 65, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 58 },
-  { key: "bass", label: "Clave de fa", symbol: "𝄢", tag: "", vex: "bass", minMidi: 40, maxMidi: 67, centerMinMidi: 45, centerMaxMidi: 58, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
-  { key: "bass8vb", label: "Clave de fa 8va baja", symbol: "𝄢", tag: "8vb", vex: "bass", displayOctaveShift: 1, minMidi: 28, maxMidi: 55, centerMinMidi: 33, centerMaxMidi: 46, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
+  { key: "treble", label: "Clave de Sol", symbol: "𝄞", tag: "", vex: "treble", minMidi: 60, maxMidi: 88, centerMinMidi: 65, centerMaxMidi: 79, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
+  { key: "treble8va", label: "Clave de Sol 8va alta", symbol: "𝄞", tag: "8va", vex: "treble", displayOctaveShift: -1, minMidi: 72, maxMidi: 100, centerMinMidi: 77, centerMaxMidi: 91, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
+  { key: "treble15ma", label: "Clave de Sol 15ma alta", symbol: "𝄞", tag: "15ma", vex: "treble", displayOctaveShift: -2, minMidi: 84, maxMidi: 108, centerMinMidi: 84, centerMaxMidi: 100, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
+  { key: "soprano", label: "Clave de Do en I", symbol: "𝄡", tag: "I", vex: "soprano", minMidi: 57, maxMidi: 81, centerMinMidi: 62, centerMaxMidi: 74, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 100 },
+  { key: "mezzo", label: "Clave de Do en II", symbol: "𝄡", tag: "II", vex: "mezzo-soprano", minMidi: 55, maxMidi: 79, centerMinMidi: 60, centerMaxMidi: 72, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 86 },
+  { key: "alto", label: "Clave de Do en III", symbol: "𝄡", tag: "III", vex: "alto", minMidi: 53, maxMidi: 77, centerMinMidi: 58, centerMaxMidi: 70, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 72 },
+  { key: "tenor", label: "Clave de Do en IV", symbol: "𝄡", tag: "IV", vex: "tenor", minMidi: 48, maxMidi: 72, centerMinMidi: 53, centerMaxMidi: 65, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 58 },
+  { key: "bass", label: "Clave de Fa", symbol: "𝄢", tag: "", vex: "bass", minMidi: 40, maxMidi: 67, centerMinMidi: 45, centerMaxMidi: 58, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
+  { key: "bass8vb", label: "Clave de Fa 8va baja", symbol: "𝄢", tag: "8vb", vex: "bass", displayOctaveShift: 1, minMidi: 28, maxMidi: 55, centerMinMidi: 33, centerMaxMidi: 46, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
 ];
 
 const INTERVAL_DEFINITIONS = [
@@ -631,71 +631,19 @@ function ActionButton({ active, onClick, children, disabled = false }) {
 }
 
 function ClefChip({ clef, active, onClick }) {
-  const previewRef = useRef(null);
-
-  useLayoutEffect(() => {
-    if (!previewRef.current) return;
-    previewRef.current.innerHTML = "";
-
-    try {
-      const { Renderer, Stave } = VF;
-      const width = 148;
-      const height = 100;
-      const renderer = new Renderer(previewRef.current, Renderer.Backends.SVG);
-      renderer.resize(width, height);
-      const context = renderer.getContext();
-      const stave = new Stave(10, 22, width - 20);
-      stave.addClef(clef.vex);
-      stave.setContext(context).draw();
-
-      const svg = previewRef.current.querySelector("svg");
-      if (svg) {
-        const accent = active ? "#0369a1" : "#18181b";
-        svg.setAttribute("aria-hidden", "true");
-        svg.style.width = "100%";
-        svg.style.height = "100%";
-        svg.style.overflow = "visible";
-        svg.style.transform = "translateY(-2px) scale(0.78)";
-        svg.style.transformOrigin = "center center";
-
-        svg.querySelectorAll("path, rect, line").forEach((node) => {
-          node.setAttribute("stroke", accent);
-          if (node.getAttribute("fill") && node.getAttribute("fill") !== "none") {
-            node.setAttribute("fill", accent);
-          }
-        });
-        svg.querySelectorAll("text").forEach((node) => node.setAttribute("fill", accent));
-
-        if (clef.tag) {
-          const ns = "http://www.w3.org/2000/svg";
-          const tag = document.createElementNS(ns, "text");
-          tag.setAttribute("x", "122");
-          tag.setAttribute("y", clef.tag === "8vb" ? "77" : "30");
-          tag.setAttribute("font-size", "13");
-          tag.setAttribute("font-weight", "700");
-          tag.setAttribute("fill", accent);
-          tag.textContent = clef.tag;
-          svg.appendChild(tag);
-        }
-      }
-    } catch (error) {
-      previewRef.current.innerHTML = `<div style="font-family:serif;font-size:24px;line-height:56px;text-align:center;color:${active ? "#0369a1" : "#18181b"};">${clef.symbol}${clef.tag ?? ""}</div>`;
-    }
-  }, [clef, active]);
-
   return (
     <button
       type="button"
       onClick={onClick}
       title={clef.label}
       aria-label={clef.label}
-      className={`relative h-[82px] w-[122px] shrink-0 overflow-hidden rounded-2xl border px-1 py-1 transition ${
+      className={`inline-flex min-h-[42px] items-center justify-center rounded-full border px-4 py-2 text-sm font-medium transition ${
         active
-          ? "border-sky-400 bg-sky-50 text-sky-700 ring-2 ring-sky-100"
-          : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500"
+          ? "border-sky-400 bg-sky-50 text-sky-800 ring-2 ring-sky-100"
+          : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-50"
       }`}
     >
-      <div ref={previewRef} className="flex h-full w-full items-center justify-center" />
+      {clef.label}
     </button>
   );
 }
@@ -1360,7 +1308,7 @@ export default function IntervalTrainerPage() {
                     <Badge>{selectedClefKeys.length} activas</Badge>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2 overflow-x-hidden">
+                <div className="flex flex-wrap gap-2">
                   {CLEFS.map((clef) => (
                     <ClefChip key={clef.key} clef={clef} active={selectedClefKeys.includes(clef.key)} onClick={() => toggleClef(clef.key)} />
                   ))}
@@ -1425,14 +1373,16 @@ export default function IntervalTrainerPage() {
               </div>
 
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                {modelLabels.length > 0 ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                    <p className="text-sm font-medium text-zinc-500">Modelos reconocibles en la sucesión</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {modelLabels.map((label) => <Badge key={label}>{label}</Badge>)}
-                    </div>
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <p className="text-sm font-medium text-zinc-500">Modelos reconocibles en la sucesión</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {modelLabels.length > 0 ? (
+                      modelLabels.map((label) => <Badge key={label}>{label}</Badge>)
+                    ) : (
+                      <span className="text-xs text-zinc-500">Sin modelo reconocible en esta sucesión.</span>
+                    )}
                   </div>
-                ) : null}
+                </div>
 
                 {revealFull ? (
                   <div className="rounded-2xl border border-zinc-200 bg-white p-4">
