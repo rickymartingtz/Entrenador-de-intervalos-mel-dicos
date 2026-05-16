@@ -927,10 +927,24 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         const availableWidth = Math.max(300, scrollRef.current?.clientWidth ?? 650);
         const compact = availableWidth < 560;
         const noteCount = Math.max(1, entries.length);
-        const sidePadding = compact ? 112 : 132;
-        const desiredSpacing = Math.floor((availableWidth - sidePadding) / noteCount);
-        const noteSpacing = clamp(desiredSpacing, compact ? 34 : 38, compact ? 66 : 76);
-        const width = Math.max(availableWidth, sidePadding + noteCount * noteSpacing);
+        const sidePadding = compact ? 118 : 142;
+        let noteSpacing;
+        let width;
+        if (noteCount <= 2) {
+          noteSpacing = compact ? 82 : 128;
+          width = Math.min(availableWidth, compact ? 340 : 520);
+        } else if (noteCount <= 4) {
+          noteSpacing = compact ? 64 : 100;
+          width = Math.min(availableWidth, sidePadding + noteCount * noteSpacing);
+        } else {
+          const fitSpacing = Math.floor((availableWidth - sidePadding) / noteCount);
+          noteSpacing = clamp(fitSpacing, compact ? 34 : 42, compact ? 54 : 78);
+          const naturalWidth = sidePadding + noteCount * noteSpacing;
+          width = compact
+            ? Math.max(availableWidth, naturalWidth)
+            : Math.min(availableWidth, Math.max(naturalWidth, availableWidth * 0.88));
+        }
+        width = Math.max(compact ? 320 : 420, Math.round(width));
         const height = compact ? 158 : 168;
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
@@ -1145,10 +1159,10 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
   const currentClef = getClefConfig(exercise?.clefKey ?? "treble");
 
   return (
-    <div className="mx-auto w-full max-w-none space-y-2">
+    <div className="mx-auto w-full max-w-full min-w-0 space-y-2 overflow-hidden">
       <div className="relative">
         {scrollMetrics.max > 4 ? (
-          <div className="pointer-events-none absolute inset-y-1 left-0 z-10 hidden w-12 items-center justify-center rounded-l-xl bg-white/92 text-4xl text-zinc-900 shadow-[8px_0_14px_rgba(255,255,255,0.92)] sm:flex">
+          <div className="pointer-events-none absolute inset-y-1 left-0 z-10 flex w-10 items-center justify-center rounded-l-xl bg-white/92 text-3xl text-zinc-900 shadow-[8px_0_14px_rgba(255,255,255,0.92)] sm:w-12 sm:text-4xl">
             <span className="-mt-1">{currentClef.symbol}</span>
           </div>
         ) : null}
@@ -1163,10 +1177,12 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         onTouchMove={handleTouchMove}
         onTouchEnd={stopTouch}
         onTouchCancel={stopTouch}
-        className="staff-scroll max-w-full cursor-grab touch-pan-x overflow-x-scroll overflow-y-hidden overscroll-x-contain rounded-xl bg-white px-1 pt-2 pb-2 active:cursor-grabbing sm:px-2"
+        className="staff-scroll w-full min-w-0 max-w-full cursor-grab touch-pan-x overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-xl bg-white px-1 pt-2 pb-2 active:cursor-grabbing sm:px-2"
         style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin", touchAction: "pan-x", scrollBehavior: "auto" }}
       >
-        <div ref={containerRef} className="inline-block min-w-max align-top" />
+        <div className="min-w-full">
+          <div ref={containerRef} className="mx-auto inline-block align-top" />
+        </div>
       </div>
       </div>
       {scrollMetrics.max > 4 ? (
@@ -2317,7 +2333,7 @@ export default function IntervalTrainerPage() {
             </div>
           </div>
 
-          <div className="space-y-6">
+          <div className="min-w-0 space-y-6">
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
               <div className="mb-4 grid gap-2 sm:flex sm:flex-wrap sm:gap-3">
                 <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
@@ -2338,7 +2354,7 @@ export default function IntervalTrainerPage() {
                 ) : null}
               </div>
 
-              <div className="rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-sm sm:p-2">
+              <div className="min-w-0 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-sm sm:p-2">
                 <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} onNotePress={playSingleNote} />
                 <div className="border-t border-zinc-100 px-2 pb-3 pt-1">
                   <TunerPanel notes={tuningNotes} visible={exerciseComplete || revealFull} />
@@ -2385,8 +2401,8 @@ export default function IntervalTrainerPage() {
                 <p className="text-sm text-zinc-600">Datos guardados en este ordenador o teléfono.</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => addTimeMark("Marca manual")} className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100">Marcar tiempo</button>
-                <button type="button" onClick={clearTimeMarks} className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-500 transition hover:bg-white">Borrar marcas</button>
+                <button type="button" onClick={() => addTimeMark("Puntaje guardado")} className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100">Guardar puntaje</button>
+                <button type="button" onClick={clearTimeMarks} className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100">Borrar marcas</button>
                 <button type="button" onClick={() => setShowProgressPanel(false)} className="rounded-xl border border-zinc-900 bg-zinc-900 px-3 py-2 text-xs font-semibold text-white">Cerrar</button>
               </div>
             </div>
@@ -2414,12 +2430,12 @@ export default function IntervalTrainerPage() {
                   </div>
                 </div>
               )) : (
-                <p className="rounded-xl border border-dashed border-zinc-200 p-3 text-xs text-zinc-500">Todavía no hay marcas de tiempo. Usa “Marcar tiempo” para guardar un corte de tu sesión.</p>
+                <p className="rounded-xl border border-dashed border-zinc-200 p-3 text-xs text-zinc-500">Todavía no hay marcas guardadas. Usa “Guardar puntaje” para guardar un corte de tu sesión.</p>
               )}
             </div>
           </div>
         ) : null}
-        <div className="mx-auto flex max-w-[1800px] flex-nowrap items-stretch gap-2 overflow-x-auto pb-1 sm:pb-0">
+        <div className="mx-auto flex max-w-[1800px] flex-nowrap items-stretch justify-start gap-3 overflow-x-auto pb-1 sm:pb-0 xl:justify-center">
           <BottomStat label="Tiempo" value={formatTime(stats.totalSeconds)} />
           <button
             type="button"
@@ -2434,10 +2450,10 @@ export default function IntervalTrainerPage() {
           <BottomStat label="Puntuación" value={`${score}/100`} />
           <button
             type="button"
-            onClick={() => addTimeMark("Marca manual")}
-            className="inline-flex min-w-[100px] items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
+            onClick={() => addTimeMark("Puntaje guardado")}
+            className="inline-flex min-w-[108px] items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
           >
-            <span>Guardar<br />marca</span>
+            <span>Guardar<br />puntaje</span>
           </button>
           <button
             type="button"
@@ -2456,7 +2472,7 @@ export default function IntervalTrainerPage() {
           <button
             type="button"
             onClick={resetEverything}
-            className="inline-flex min-w-[118px] items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-500 transition hover:border-zinc-400 hover:bg-white"
+            className="inline-flex min-w-[118px] items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
           >
             <ResetIcon className="h-4 w-4 shrink-0" /> <span>Reiniciar<br />parámetros</span>
           </button>
