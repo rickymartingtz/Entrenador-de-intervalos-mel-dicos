@@ -1006,6 +1006,27 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
             svg.appendChild(tag);
           }
 
+          const topLineY = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : (compact ? 70 : 74);
+          const bottomLineY = typeof stave.getYForLine === "function" ? stave.getYForLine(4) : (compact ? 110 : 114);
+          const rightBarX = (compact ? 8 : 14) + (width - (compact ? 16 : 28)) - 6;
+          const thinBar = document.createElementNS(ns, "line");
+          thinBar.setAttribute("x1", String(rightBarX - 6));
+          thinBar.setAttribute("x2", String(rightBarX - 6));
+          thinBar.setAttribute("y1", String(topLineY));
+          thinBar.setAttribute("y2", String(bottomLineY));
+          thinBar.setAttribute("stroke", "#27272a");
+          thinBar.setAttribute("stroke-width", "1.5");
+          svg.appendChild(thinBar);
+          const thickBar = document.createElementNS(ns, "line");
+          thickBar.setAttribute("x1", String(rightBarX));
+          thickBar.setAttribute("x2", String(rightBarX));
+          thickBar.setAttribute("y1", String(topLineY));
+          thickBar.setAttribute("y2", String(bottomLineY));
+          thickBar.setAttribute("stroke", "#27272a");
+          thickBar.setAttribute("stroke-width", "3");
+          thickBar.setAttribute("stroke-linecap", "square");
+          svg.appendChild(thickBar);
+
           entries.forEach((entry, index) => {
             const vexNote = vexNotes[index];
             const beginX = typeof vexNote.getNoteHeadBeginX === "function" ? vexNote.getNoteHeadBeginX() : null;
@@ -1026,17 +1047,6 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
               mark.setAttribute("fill", color);
               mark.textContent = status === "correct" ? "✓" : "×";
               svg.appendChild(mark);
-              if (!isHarmonic) {
-                const underline = document.createElementNS(ns, "line");
-                underline.setAttribute("x1", String(noteX - 15));
-                underline.setAttribute("x2", String(noteX + 15));
-                underline.setAttribute("y1", String(y + 21));
-                underline.setAttribute("y2", String(y + 21));
-                underline.setAttribute("stroke", color);
-                underline.setAttribute("stroke-width", "3");
-                underline.setAttribute("stroke-linecap", "round");
-                svg.appendChild(underline);
-              }
             };
 
             const addNoteHitArea = (note, y) => {
@@ -1161,10 +1171,8 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
   return (
     <div className="mx-auto w-full max-w-full min-w-0 space-y-2 overflow-hidden">
       <div className="relative">
-        {scrollMetrics.max > 4 ? (
-          <div className="pointer-events-none absolute inset-y-1 left-0 z-10 flex w-10 items-center justify-center rounded-l-xl bg-white/92 text-3xl text-zinc-900 shadow-[8px_0_14px_rgba(255,255,255,0.92)] sm:w-12 sm:text-4xl">
-            <span className="-mt-1">{currentClef.symbol}</span>
-          </div>
+        {false ? (
+          <div />
         ) : null}
       <div
         ref={scrollRef}
@@ -1180,8 +1188,8 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         className="staff-scroll w-full min-w-0 max-w-full cursor-grab touch-pan-x overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-xl bg-white px-1 pt-2 pb-2 active:cursor-grabbing sm:px-2"
         style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin", touchAction: "pan-x", scrollBehavior: "auto" }}
       >
-        <div className="min-w-full">
-          <div ref={containerRef} className="mx-auto inline-block align-top" />
+        <div className="flex min-w-full justify-center">
+          <div ref={containerRef} className="inline-block align-top" />
         </div>
       </div>
       </div>
@@ -2435,14 +2443,14 @@ export default function IntervalTrainerPage() {
             </div>
           </div>
         ) : null}
-        <div className="mx-auto flex max-w-[1800px] flex-nowrap items-stretch justify-start gap-3 overflow-x-auto pb-1 sm:pb-0 xl:justify-center">
+        <div className="mx-auto flex w-fit max-w-full flex-nowrap items-stretch justify-center gap-3 overflow-x-auto pb-1 sm:pb-0 md:gap-4">
           <BottomStat label="Tiempo" value={formatTime(stats.totalSeconds)} />
           <button
             type="button"
             onClick={() => setIsTimerPaused((current) => !current)}
             className={`inline-flex min-w-[104px] items-center justify-center whitespace-normal rounded-xl border px-3 py-2 text-center text-xs font-semibold leading-tight transition ${isTimerPaused ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
           >
-            {isTimerPaused ? "Reanudar tiempo" : "Pausar tiempo"}
+            {isTimerPaused ? <span>Reanudar<br />tiempo</span> : <span>Pausar<br />tiempo</span>}
           </button>
           <BottomStat label="Ejercicios" value={stats.exercises} />
           <BottomStat label="Aciertos" value={stats.correct} />
