@@ -1164,39 +1164,41 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
 
     ctx.clearRect(0, 0, w, h);
 
-    const yForCents = (value) => h / 2 - (clamp(value, -TUNER_RANGE_CENTS, TUNER_RANGE_CENTS) / TUNER_RANGE_CENTS) * (h / 2 - 5);
-    const greenTop = yForCents(IN_TUNE_THRESHOLD);
-    const greenBottom = yForCents(-IN_TUNE_THRESHOLD);
+    const xForCents = (value) => w / 2 + (clamp(value, -TUNER_RANGE_CENTS, TUNER_RANGE_CENTS) / TUNER_RANGE_CENTS) * (w / 2 - 7);
+    const greenLeft = xForCents(-IN_TUNE_THRESHOLD);
+    const greenRight = xForCents(IN_TUNE_THRESHOLD);
 
-    const gradient = ctx.createLinearGradient(0, 0, 0, h);
+    const gradient = ctx.createLinearGradient(0, 0, w, 0);
     gradient.addColorStop(0, "rgba(248,113,113,0.11)");
     gradient.addColorStop(0.36, "rgba(248,113,113,0.035)");
-    gradient.addColorStop(0.50, "rgba(16,185,129,0.07)");
+    gradient.addColorStop(0.50, "rgba(16,185,129,0.055)");
     gradient.addColorStop(0.64, "rgba(248,113,113,0.035)");
     gradient.addColorStop(1, "rgba(248,113,113,0.11)");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, w, h);
 
-    ctx.fillStyle = completed ? "rgba(16,185,129,0.30)" : "rgba(16,185,129,0.20)";
-    ctx.fillRect(0, greenTop, w, Math.max(2, greenBottom - greenTop));
+    ctx.fillStyle = completed ? "rgba(16,185,129,0.34)" : "rgba(16,185,129,0.22)";
+    ctx.fillRect(greenLeft, 0, Math.max(2, greenRight - greenLeft), h);
 
     ctx.strokeStyle = "rgba(15,23,42,0.08)";
     ctx.lineWidth = 1;
     [-50, -25, 0, 25, 50].forEach((mark) => {
-      const y = yForCents(mark);
+      const x = xForCents(mark);
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
       ctx.stroke();
     });
 
-    ctx.strokeStyle = completed ? "rgba(5,150,105,0.70)" : "rgba(5,150,105,0.45)";
+    ctx.strokeStyle = completed ? "rgba(5,150,105,0.75)" : "rgba(15,23,42,0.38)";
     ctx.lineWidth = completed ? 2 : 1.25;
     ctx.beginPath();
-    ctx.moveTo(0, h / 2);
-    ctx.lineTo(w, h / 2);
+    ctx.moveTo(w / 2, 0);
+    ctx.lineTo(w / 2, h);
     ctx.stroke();
 
+    // El historial baja verticalmente: eje X = cents, eje Y = tiempo.
+    // Así la línea que se dibuja queda alineada con el indicador actual.
     if (active && centsHistoryRef?.current) {
       const buf = centsHistoryRef.current;
       const len = buf.length;
@@ -1211,14 +1213,14 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
           drawing = false;
           continue;
         }
-        const x = (i / Math.max(1, len - 1)) * w;
-        const y = yForCents(value);
+        const x = xForCents(value);
+        const y = (i / Math.max(1, len - 1)) * h;
         const isInTune = Math.abs(value) <= IN_TUNE_THRESHOLD;
         if (!drawing) {
           ctx.beginPath();
           ctx.moveTo(x, y);
           ctx.strokeStyle = isInTune ? "#047857" : "#0f172a";
-          ctx.lineWidth = isInTune ? 2 : 1.5;
+          ctx.lineWidth = isInTune ? 2 : 1.45;
           drawing = true;
         } else if (isInTune !== previousInTune) {
           ctx.lineTo(x, y);
@@ -1226,7 +1228,7 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
           ctx.beginPath();
           ctx.moveTo(x, y);
           ctx.strokeStyle = isInTune ? "#047857" : "#0f172a";
-          ctx.lineWidth = isInTune ? 2 : 1.5;
+          ctx.lineWidth = isInTune ? 2 : 1.45;
         } else {
           ctx.lineTo(x, y);
         }
@@ -1240,8 +1242,8 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
   const clamped = valid ? clamp(cents, -TUNER_RANGE_CENTS, TUNER_RANGE_CENTS) : 0;
   const linePct = 50 + (clamped / TUNER_RANGE_CENTS) * 50;
   const inTune = valid && Math.abs(cents) <= IN_TUNE_THRESHOLD;
-  const bandTop = 50 - (IN_TUNE_THRESHOLD / TUNER_RANGE_CENTS) * 50;
-  const bandHeight = (IN_TUNE_THRESHOLD * 2 / TUNER_RANGE_CENTS) * 50;
+  const bandLeft = 50 - (IN_TUNE_THRESHOLD / TUNER_RANGE_CENTS) * 50;
+  const bandWidth = (IN_TUNE_THRESHOLD * 2 / TUNER_RANGE_CENTS) * 50;
 
   return (
     <div className={`rounded-xl border bg-white p-2 transition ${completed ? "border-emerald-400 bg-emerald-50 shadow-[0_0_0_1px_rgba(16,185,129,0.22)]" : inTune ? "border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]" : "border-zinc-200"}`}>
@@ -1258,7 +1260,7 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
 
       <div className="relative h-12 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50">
         <canvas ref={canvasRef} className="block h-full w-full" />
-        <div className="pointer-events-none absolute left-0 right-0 rounded-sm bg-emerald-300/28" style={{ top: `${bandTop}%`, height: `${bandHeight}%` }} />
+        <div className="pointer-events-none absolute inset-y-0 rounded-sm bg-emerald-300/28" style={{ left: `${bandLeft}%`, width: `${bandWidth}%` }} />
         <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-zinc-900/45" />
         {valid ? (
           <div
@@ -1292,6 +1294,7 @@ function TunerPanel({ notes = [], visible = false }) {
   const targetIndexRef = useRef(0);
   const notesRef = useRef(notes);
   const holdSecondsRef = useRef(2);
+  const lastCentsRef = useRef(null);
 
   const [isListening, setIsListening] = useState(false);
   const [mode, setMode] = useState("study");
@@ -1319,7 +1322,7 @@ function TunerPanel({ notes = [], visible = false }) {
     setHoldProgress(Math.min(1, accumulatedHoldMsRef.current / (holdSeconds * 1000)));
   }, [holdSeconds]);
 
-  const resetCurrentTargetProgress = useCallback(() => {
+  const resetCurrentTargetProgress = useCallback((clearHistory = false) => {
     if (completionTimeoutRef.current) window.clearTimeout(completionTimeoutRef.current);
     completionTimeoutRef.current = null;
     isCompletingRef.current = false;
@@ -1327,8 +1330,11 @@ function TunerPanel({ notes = [], visible = false }) {
     setHoldProgress(0);
     accumulatedHoldMsRef.current = 0;
     lastCenteredAtRef.current = null;
-    centsHistoryRef.current.fill(NaN);
-    centsHistoryIdxRef.current = 0;
+    if (clearHistory) {
+      centsHistoryRef.current.fill(NaN);
+      centsHistoryIdxRef.current = 0;
+      lastCentsRef.current = null;
+    }
   }, []);
 
   const resetTunerState = useCallback(() => {
@@ -1346,6 +1352,7 @@ function TunerPanel({ notes = [], visible = false }) {
     accumulatedHoldMsRef.current = 0;
     lastCenteredAtRef.current = null;
     lastDetectionAtRef.current = null;
+    lastCentsRef.current = null;
     centsHistoryRef.current.fill(NaN);
     centsHistoryIdxRef.current = 0;
   }, []);
@@ -1374,7 +1381,7 @@ function TunerPanel({ notes = [], visible = false }) {
     const bounded = clamp(nextIndex, 0, Math.max(0, list.length - 1));
     targetIndexRef.current = bounded;
     setTargetIndex(bounded);
-    resetCurrentTargetProgress();
+    resetCurrentTargetProgress(false);
   }, [resetCurrentTargetProgress]);
 
   const advanceTarget = useCallback(() => {
@@ -1383,7 +1390,7 @@ function TunerPanel({ notes = [], visible = false }) {
     const next = targetIndexRef.current < list.length - 1 ? targetIndexRef.current + 1 : targetIndexRef.current;
     targetIndexRef.current = next;
     setTargetIndex(next);
-    resetCurrentTargetProgress();
+    resetCurrentTargetProgress(false);
   }, [resetCurrentTargetProgress]);
 
   const completeCurrentTarget = useCallback(() => {
@@ -1421,12 +1428,14 @@ function TunerPanel({ notes = [], visible = false }) {
 
     if (!freq) {
       lastCenteredAtRef.current = null;
-      centsHistoryRef.current[centsHistoryIdxRef.current] = NaN;
-      centsHistoryIdxRef.current = (centsHistoryIdxRef.current + 1) % PITCH_HISTORY_LEN;
+      // No borrar la lectura ni el progreso por silencios o microcortes.
+      // El trazo se mantiene continuo en lugar de parecer que se reinicia.
       const lastDetection = lastDetectionAtRef.current;
       if (lastDetection && now - lastDetection <= TUNER_MICRO_GAP_MS) return;
-      setDetectedHz(null);
-      setCents(null);
+      if (Number.isFinite(lastCentsRef.current)) {
+        centsHistoryRef.current[centsHistoryIdxRef.current] = lastCentsRef.current;
+        centsHistoryIdxRef.current = (centsHistoryIdxRef.current + 1) % PITCH_HISTORY_LEN;
+      }
       return;
     }
 
@@ -1446,6 +1455,7 @@ function TunerPanel({ notes = [], visible = false }) {
 
     if (rawCents == null) return;
 
+    lastCentsRef.current = rawCents;
     centsHistoryRef.current[centsHistoryIdxRef.current] = rawCents;
     centsHistoryIdxRef.current = (centsHistoryIdxRef.current + 1) % PITCH_HISTORY_LEN;
 
@@ -1547,6 +1557,13 @@ function TunerPanel({ notes = [], visible = false }) {
                   {seconds}s
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => setTargetManually(targetIndexRef.current + 1)}
+                className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:border-zinc-500"
+              >
+                Siguiente nota
+              </button>
             </div>
           ) : null}
           {isListening ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">Mic activo</span> : <button type="button" onClick={startListening} className="rounded-full border border-zinc-950 bg-zinc-950 px-3 py-1 text-[11px] font-semibold text-white">Activar micrófono</button>}
@@ -1677,6 +1694,7 @@ export default function IntervalTrainerPage() {
   const score = scoreFromStats(stats);
   const intervalLabels = useMemo(() => getExerciseIntervalLabels(exercise), [exercise]);
   const modelLabels = useMemo(() => getExerciseModelLabels(exercise), [exercise]);
+  const tuningNotes = useMemo(() => getExerciseTuningNotes(exercise), [exercise]);
   const visibleDirectionOptions = useMemo(() => {
     if (isHarmonicMode || useTwelveToneSeries) return [];
     if (noteCount === 2) return SHORT_DIRECTION_OPTIONS.filter((option) => option.key !== "mixed");
@@ -2249,7 +2267,7 @@ export default function IntervalTrainerPage() {
               <div className="rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-sm sm:p-2">
                 <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} onNotePress={playSingleNote} />
                 <div className="border-t border-zinc-100 px-2 pb-3 pt-1">
-                  <TunerPanel notes={getExerciseTuningNotes(exercise)} visible={exerciseComplete || revealFull} />
+                  <TunerPanel notes={tuningNotes} visible={exerciseComplete || revealFull} />
                   {exerciseComplete || revealFull ? null : (
                     <PianoKeyboard onPress={handleKeyboardPress} disabled={false} />
                   )}
