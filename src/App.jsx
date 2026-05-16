@@ -937,12 +937,13 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
       if (!entries.length) return;
 
       try {
-        const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental } = VF;
+        const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, GhostNote } = VF;
         const availableWidth = Math.max(300, scrollRef.current?.clientWidth ?? 650);
         const compact = availableWidth < 560;
         const noteCount = Math.max(1, entries.length);
         const clefReserve = compact ? 76 : 92;
         const finalReserve = compact ? 34 : 42;
+        const noteStartPadding = compact ? 26 : 34;
         const noteSpacing = noteCount <= 2
           ? (compact ? 68 : 92)
           : noteCount <= 4
@@ -972,6 +973,9 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         } else {
           stave.addClef(clef.vex);
         }
+        if (typeof stave.getNoteStartX === "function" && typeof stave.setNoteStartX === "function") {
+          stave.setNoteStartX(stave.getNoteStartX() + noteStartPadding);
+        }
         stave.setContext(context).draw();
 
         const accidentalState = new Map();
@@ -986,20 +990,17 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
 
         const vexNotes = noteGroups.map((group) => {
           const allHidden = group.every((item) => item.visible === false);
-          const safeHiddenNote = makeNote(clef.staffRefLetter, clef.staffRefOctave, 0);
-          const renderGroup = allHidden
-            ? [{ note: safeHiddenNote, role: "placeholder", status: "hidden", visible: false }]
-            : group;
+          if (allHidden && typeof GhostNote === "function") {
+            return new GhostNote({ duration: "w" });
+          }
+
+          const renderGroup = group;
 
           const staveNote = new StaveNote({
             clef: clef.vex,
             keys: renderGroup.map(({ note }) => noteToVexKey(note, clef)),
             duration: "w",
           });
-
-          if (allHidden && typeof staveNote.setStyle === "function") {
-            staveNote.setStyle({ fillStyle: "rgba(0,0,0,0)", strokeStyle: "rgba(0,0,0,0)" });
-          }
 
           renderGroup.forEach(({ note, visible }, noteIndex) => {
             if (visible === false) return;
@@ -1019,7 +1020,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         if (typeof voice.setMode === "function" && Voice.Mode) voice.setMode(Voice.Mode.SOFT);
         if (typeof voice.setStrict === "function") voice.setStrict(false);
         voice.addTickables(vexNotes);
-        const formatWidth = Math.max(150, width - clefReserve - finalReserve);
+        const formatWidth = Math.max(150, width - clefReserve - finalReserve - noteStartPadding);
         new Formatter().joinVoices([voice]).format([voice], formatWidth);
 
         voice.draw(context, stave);
@@ -1806,6 +1807,20 @@ export default function IntervalTrainerPage() {
   const expectedNote = isHarmonicMode && harmonicStep ? exercise.pairs?.[harmonicStep.pairIndex]?.[harmonicStep.voice] : exercise.sequence?.[nextIndex] ?? null;
   const exerciseComplete = isHarmonicMode ? harmonicStep == null : nextIndex >= (exercise.sequence?.length ?? 0);
   const score = scoreFromStats(stats);
+  const savedTotals = useMemo(() => {
+    const totals = timeMarks.reduce((acc, mark) => {
+      acc.totalSeconds += Number(mark.totalSeconds ?? 0);
+      acc.exercises += Number(mark.exercises ?? 0);
+      acc.correct += Number(mark.correct ?? 0);
+      acc.incorrect += Number(mark.incorrect ?? 0);
+      return acc;
+    }, { totalSeconds: 0, exercises: 0, correct: 0, incorrect: 0 });
+    return {
+      ...totals,
+      savedCount: timeMarks.length,
+      score: scoreFromStats({ correct: totals.correct, incorrect: totals.incorrect }),
+    };
+  }, [timeMarks]);
   const intervalLabels = useMemo(() => getExerciseIntervalLabels(exercise), [exercise]);
   const modelLabels = useMemo(() => getExerciseModelLabels(exercise), [exercise]);
   const tuningNotes = useMemo(() => getExerciseTuningNotes(exercise), [exercise]);
@@ -2451,8 +2466,8 @@ export default function IntervalTrainerPage() {
 
       <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-3 py-2 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur sm:px-4 sm:py-3">
         {showProgressPanel ? (
-          <div className="mx-auto mb-2 max-w-[1800px] rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="fixed inset-x-3 top-3 bottom-24 z-[60] mx-auto flex max-w-[1800px] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl sm:bottom-28 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 pb-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Progreso local</p>
                 <p className="text-sm text-zinc-600">Datos guardados en este ordenador o teléfono.</p>
@@ -2463,18 +2478,18 @@ export default function IntervalTrainerPage() {
                 <button type="button" onClick={() => setShowProgressPanel(false)} className="rounded-xl border border-zinc-900 bg-zinc-900 px-3 py-2 text-xs font-semibold text-white">Cerrar</button>
               </div>
             </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-5">
-              <BottomStat label="Tiempo" value={formatTime(stats.totalSeconds)} />
-              <BottomStat label="Ejercicios" value={stats.exercises} />
-              <BottomStat label="Aciertos" value={stats.correct} />
-              <BottomStat label="Errores" value={stats.incorrect} />
-              <BottomStat label="Puntuación" value={`${score}/100`} />
+            <div className="mt-3 grid gap-2 sm:grid-cols-6">
+              <BottomStat label="Guardados" value={savedTotals.savedCount} />
+              <BottomStat label="Tiempo total" value={formatTime(savedTotals.totalSeconds)} />
+              <BottomStat label="Ejercicios" value={savedTotals.exercises} />
+              <BottomStat label="Aciertos" value={savedTotals.correct} />
+              <BottomStat label="Errores" value={savedTotals.incorrect} />
+              <BottomStat label="Puntuación" value={`${savedTotals.score}/100`} />
             </div>
-            <div className="mt-3 max-h-40 space-y-2 overflow-y-auto pr-1">
+            <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {timeMarks.length > 0 ? timeMarks.map((mark) => (
                 <div key={mark.id} className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-semibold text-zinc-900">{mark.label}</span>
                     <span className="text-zinc-500">{formatDateTime(mark.timestamp)}</span>
                   </div>
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-zinc-600">
@@ -2487,7 +2502,7 @@ export default function IntervalTrainerPage() {
                   </div>
                 </div>
               )) : (
-                <p className="rounded-xl border border-dashed border-zinc-200 p-3 text-xs text-zinc-500">Todavía no hay marcas guardadas. Usa “Guardar puntaje” para guardar un corte de tu sesión.</p>
+                <p className="rounded-xl border border-dashed border-zinc-200 p-3 text-xs text-zinc-500">Todavía no hay puntajes guardados. Usa “Guardar puntaje” para guardar un corte de tu sesión.</p>
               )}
             </div>
           </div>
