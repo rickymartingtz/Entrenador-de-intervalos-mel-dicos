@@ -2388,7 +2388,6 @@ export default function IntervalTrainerPage() {
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
       const step = secondsPerBeat;
       const noteDuration = selectedInstrument?.sustain ? Math.max(0.24, step * 0.99) : Math.max(0.2, step * 0.92);
-      const baseTime = ctx.currentTime + 0.08;
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
       let sfInstrument = null;
       try {
@@ -2398,6 +2397,11 @@ export default function IntervalTrainerPage() {
       }
       if (sessionId !== playbackSessionRef.current) return;
       stopAllAudio();
+
+      // Importante: calcular el tiempo base DESPUÉS de cargar el SoundFont.
+      // Si se calcula antes, el primer uso de un instrumento nuevo puede programar
+      // las primeras notas en el pasado y el navegador las dispara casi juntas.
+      const baseTime = ctx.currentTime + 0.12;
 
       playableGroups.forEach((group, index) => {
         const start = baseTime + index * step;
@@ -2433,7 +2437,6 @@ export default function IntervalTrainerPage() {
     setIsPlaying(false);
     try {
       const ctx = await ensureAudioContext();
-      const start = ctx.currentTime + 0.04;
       const duration = selectedInstrument?.sustain ? 1.15 : 0.95;
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
       let sfInstrument = null;
@@ -2443,6 +2446,10 @@ export default function IntervalTrainerPage() {
         console.warn("No se pudo cargar SoundFont para nota aislada. Usando síntesis interna.", error);
       }
       if (sessionId !== playbackSessionRef.current) return;
+
+      // Igual que en la reproducción completa: programar después de cargar muestras.
+      const start = ctx.currentTime + 0.06;
+
       notesToPlay.forEach((note) => {
         if (sfInstrument) {
           const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
