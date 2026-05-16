@@ -1072,27 +1072,41 @@ function sortChordVoices(notes) {
   return { lower: sorted[0], middle: sorted[1], upper: sorted[2] };
 }
 
+function adjacentVoicesWithinOctave(chord) {
+  if (!chord?.lower || !chord?.middle || !chord?.upper) return false;
+  return chord.middle.midi - chord.lower.midi <= 12 && chord.upper.midi - chord.middle.midi <= 12;
+}
+
+function chordSignature(chord) {
+  if (!chord?.lower || !chord?.middle || !chord?.upper) return '';
+  return [chord.lower.midi, chord.middle.midi, chord.upper.midi].join('-');
+}
+
+function chordPitchClassSignature(chord) {
+  if (!chord?.lower || !chord?.middle || !chord?.upper) return '';
+  return [chord.lower.midi % 12, chord.middle.midi % 12, chord.upper.midi % 12].join('-');
+}
+
 function chordIntervals(chord, allowedIntervalKeys = []) {
   const voices = [chord.lower, chord.middle, chord.upper].filter(Boolean);
   if (voices.length < 3) return [];
-  const pairs = [
-    { from: voices[0], to: voices[1], label: "Bajo–Medio" },
-    { from: voices[1], to: voices[2], label: "Medio–Alto" },
-    { from: voices[0], to: voices[2], label: "Bajo–Alto" },
-  ];
-  return pairs.map(({ from, to, label }) => {
-    const diff = Math.abs(to.midi - from.midi);
-    const interval = getIntervalBySemitones(diff % 12 === 0 && diff > 0 ? 12 : diff, allowedIntervalKeys);
-    return `${label}: ${interval?.short ?? `${diff} st`}`;
-  });
+  const lowerMiddle = Math.abs(voices[1].midi - voices[0].midi);
+  const middleUpper = Math.abs(voices[2].midi - voices[1].midi);
+  const totalSpan = Math.abs(voices[2].midi - voices[0].midi);
+  const intervalA = getIntervalBySemitones(lowerMiddle % 12 === 0 && lowerMiddle > 0 ? 12 : lowerMiddle, allowedIntervalKeys);
+  const intervalB = getIntervalBySemitones(middleUpper % 12 === 0 && middleUpper > 0 ? 12 : middleUpper, allowedIntervalKeys);
+  const total = getIntervalBySemitones(totalSpan % 12 === 0 && totalSpan > 0 ? 12 : totalSpan, allowedIntervalKeys);
+  const compact = `${intervalA?.short ?? `${lowerMiddle} st`} + ${intervalB?.short ?? `${middleUpper} st`}`;
+  return total ? [compact, `total: ${total.short}`] : [compact];
 }
 
 function chordUsesSelectedIntervals(chord, selectedIntervalKeys) {
+  if (!adjacentVoicesWithinOctave(chord)) return false;
   const allowed = new Set(sanitizeIntervalSelection(selectedIntervalKeys));
   if (!allowed.size) return true;
   const voices = [chord.lower, chord.middle, chord.upper].filter(Boolean);
   const diffs = [Math.abs(voices[1].midi - voices[0].midi), Math.abs(voices[2].midi - voices[1].midi)];
-  return diffs.every((diff) => INTERVAL_DEFINITIONS.some((interval) => allowed.has(interval.key) && interval.semitones === diff));
+  return diffs.every((diff) => diff <= 12 && INTERVAL_DEFINITIONS.some((interval) => allowed.has(interval.key) && interval.semitones === diff));
 }
 
 function makeChordFromLower(lower, selectedIntervalKeys, clef) {
@@ -1104,6 +1118,7 @@ function makeChordFromLower(lower, selectedIntervalKeys, clef) {
     const middleMidi = lower.midi + first.semitones;
     const upperMidi = middleMidi + second.semitones;
     if (middleMidi <= lower.midi || upperMidi <= middleMidi) continue;
+    if (middleMidi - lower.midi > 12 || upperMidi - middleMidi > 12) continue;
     if (upperMidi > clef.maxMidi || lower.midi < clef.minMidi) continue;
     return {
       lower,
@@ -1138,7 +1153,7 @@ function transposeChordParallel(chord, selectedIntervalKeys, clef) {
     const middle = midiToSimpleNote(chord.middle.midi + direction * interval.semitones);
     const upper = midiToSimpleNote(chord.upper.midi + direction * interval.semitones);
     const next = { lower, middle, upper };
-    if (lower.midi < middle.midi && middle.midi < upper.midi && [lower, middle, upper].every((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi)) {
+    if (lower.midi < middle.midi && middle.midi < upper.midi && adjacentVoicesWithinOctave({ lower, middle, upper }) && [lower, middle, upper].every((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi)) {
       return { ...next, linkMode: "parallel" };
     }
   }
@@ -1158,6 +1173,7 @@ function makeChordWithFixedRoles(fixedRoles, selectedIntervalKeys, clef) {
     if (!lower || !middle || !upper) continue;
     if (!(lower.midi < middle.midi && middle.midi < upper.midi)) continue;
     const chord = { lower, middle, upper };
+    if (!adjacentVoicesWithinOctave(chord)) continue;
     if (!chordUsesSelectedIntervals(chord, selectedIntervalKeys)) continue;
     return chord;
   }
@@ -1185,32 +1201,73 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
   const clef = getClefConfig(clefKey);
   const linkModes = sanitizeChordLinkModes(selectedLinkModes);
   const chords = [];
-  let current = makeRandomChord(clef, intervals);
-  chords.push({ ...current, linkMode: "inicio" });
+  const signatureCounts = new Map();
+  const pitchClassCounts = new Map();
+  const maxRepeats = safeCount < 4 ? 1 : 2;
+
+  const canUseChord = (candidate) => {
+    if (!candidate) return false;
+    const sig = chordSignature(candidate);
+    const pcSig = chordPitchClassSignature(candidate);
+    if (!sig || !pcSig) return false;
+    if ((signatureCounts.get(sig) ?? 0) >= maxRepeats) return false;
+    if ((pitchClassCounts.get(pcSig) ?? 0) >= maxRepeats) return false;
+    return true;
+  };
+
+  const registerChord = (candidate) => {
+    const sig = chordSignature(candidate);
+    const pcSig = chordPitchClassSignature(candidate);
+    signatureCounts.set(sig, (signatureCounts.get(sig) ?? 0) + 1);
+    pitchClassCounts.set(pcSig, (pitchClassCounts.get(pcSig) ?? 0) + 1);
+  };
+
+  let current = null;
+  for (let attempt = 0; attempt < 180 && !current; attempt += 1) {
+    const maybe = makeRandomChord(clef, intervals);
+    if (canUseChord(maybe)) current = maybe;
+  }
+  current = current ?? makeRandomChord(clef, intervals);
+  chords.push({ ...current, linkMode: 'inicio' });
+  registerChord(current);
 
   for (let i = 1; i < safeCount; i += 1) {
     let next = null;
     const mode = randomItem(linkModes);
-    const attempts = mode === "parallel" ? ["parallel", "common2", "common1"] : mode === "common2" ? ["common2", "common1", "parallel"] : ["common1", "common2", "parallel"];
+    const attempts = mode === 'parallel' ? ['parallel', 'common2', 'common1'] : mode === 'common2' ? ['common2', 'common1', 'parallel'] : ['common1', 'common2', 'parallel'];
     for (const candidateMode of attempts) {
-      if (candidateMode === "parallel") next = transposeChordParallel(current, intervals, clef);
-      else next = makeChordWithCommonNotes(current, intervals, clef, candidateMode === "common2" ? 2 : 1);
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const candidate = candidateMode === 'parallel'
+          ? transposeChordParallel(current, intervals, clef)
+          : makeChordWithCommonNotes(current, intervals, clef, candidateMode === 'common2' ? 2 : 1);
+        if (canUseChord(candidate)) {
+          next = candidate;
+          break;
+        }
+      }
       if (next) break;
     }
-    if (!next) next = { ...makeRandomChord(clef, intervals, false), linkMode: "libre" };
+    if (!next) {
+      for (let attempt = 0; attempt < 120 && !next; attempt += 1) {
+        const candidate = { ...makeRandomChord(clef, intervals, false), linkMode: 'libre' };
+        if (canUseChord(candidate)) next = candidate;
+      }
+    }
+    next = next ?? { ...makeRandomChord(clef, intervals, false), linkMode: 'libre' };
     chords.push(next);
+    registerChord(next);
     current = next;
   }
 
   return {
     id: `${Date.now()}-${Math.random()}`,
-    type: "chords",
+    type: 'chords',
     chords,
     clefKey,
-    mode: "chords",
+    mode: 'chords',
     intervalKeys: intervals,
     linkModes,
-    startNote: chords[0]?.lower?.label ?? "—",
+    startNote: chords[0]?.lower?.label ?? '—',
   };
 }
 
@@ -1294,7 +1351,7 @@ function getExerciseTuningNotes(exercise) {
 
 function getExerciseIntervalLabels(exercise) {
   if (exercise?.type === "chords") {
-    return (exercise.chords ?? []).map((chord, index) => `${index + 1}. ${chordIntervals(chord, exercise.intervalKeys).join(" · ")}`);
+    return (exercise.chords ?? []).map((chord, index) => `${index + 1}. ${chordIntervals(chord, exercise.intervalKeys).join(' · ')}`);
   }
   if (exercise?.type === "harmonic") {
     return (exercise.pairs ?? []).map((pair, index) => `${index + 1}. ${pair.intervalShort ?? "—"} armónico`);
@@ -1764,19 +1821,38 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
                 const y = ys[groupIndex] ?? ys[0] ?? 92;
                 if (item.visible !== false) {
                   groupYs.push(y);
-                  if (isChordExercise && (item.status === "correct" || item.status === "wrong")) {
-                    const color = item.status === "correct" ? "#2f6f4e" : "#8a3d3d";
-                    const head = document.createElementNS(ns, "ellipse");
-                    head.setAttribute("cx", String(noteX));
-                    head.setAttribute("cy", String(y));
-                    head.setAttribute("rx", "10.8");
-                    head.setAttribute("ry", "7.8");
-                    head.setAttribute("fill", "none");
-                    head.setAttribute("stroke", color);
-                    head.setAttribute("stroke-width", "2.4");
-                    head.setAttribute("opacity", "0.95");
-                    head.setAttribute("pointer-events", "none");
-                    svg.appendChild(head);
+                  if (isChordExercise) {
+                    if (item.role === "lower") {
+                      drawMark(item.status, y, "below");
+                    } else if (item.role === "middle") {
+                      if (item.status === "correct" || item.status === "wrong") {
+                        const color = item.status === "correct" ? "#16a34a" : "#dc2626";
+                        const mark = document.createElementNS(ns, "text");
+                        mark.setAttribute("x", String(noteX));
+                        mark.setAttribute("y", String(y - 18));
+                        mark.setAttribute("text-anchor", "middle");
+                        mark.setAttribute("dominant-baseline", "middle");
+                        mark.setAttribute("font-size", "17");
+                        mark.setAttribute("font-weight", "800");
+                        mark.setAttribute("fill", color);
+                        mark.textContent = item.status === "correct" ? "✓" : "×";
+                        svg.appendChild(mark);
+                      }
+                    } else {
+                      if (item.status === "correct" || item.status === "wrong") {
+                        const color = item.status === "correct" ? "#16a34a" : "#dc2626";
+                        const mark = document.createElementNS(ns, "text");
+                        mark.setAttribute("x", String(noteX));
+                        mark.setAttribute("y", String(y - 36));
+                        mark.setAttribute("text-anchor", "middle");
+                        mark.setAttribute("dominant-baseline", "middle");
+                        mark.setAttribute("font-size", "18");
+                        mark.setAttribute("font-weight", "800");
+                        mark.setAttribute("fill", color);
+                        mark.textContent = item.status === "correct" ? "✓" : "×";
+                        svg.appendChild(mark);
+                      }
+                    }
                   } else {
                     drawMark(item.status, y, item.role === "lower" ? "below" : "above");
                   }
@@ -2713,10 +2789,10 @@ export default function IntervalTrainerPage() {
     try {
       const ctx = await ensureAudioContext();
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
-      const chordUnit = isChordExercise ? secondsPerBeat * 4 : secondsPerBeat;
-      const gapMultiplier = chordGapMode === "noSilence" ? 0.96 : 1;
-      const step = chordUnit * gapMultiplier;
-      const baseDuration = chordGapMode === "noSilence" ? step * 0.96 : step * 0.72;
+      const chordSoundBeats = isChordExercise ? 13 : 1;
+      const chordGapBeats = isChordExercise ? (chordGapMode === "noSilence" ? 0 : 1) : 0;
+      const step = isChordExercise ? secondsPerBeat * (chordSoundBeats + chordGapBeats) : secondsPerBeat;
+      const baseDuration = isChordExercise ? secondsPerBeat * chordSoundBeats : step * 0.92;
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
       const instrumentConfigs = isChordExercise
         ? {
@@ -2743,7 +2819,7 @@ export default function IntervalTrainerPage() {
 
       if (sessionId !== playbackSessionRef.current) return;
       stopAllAudio();
-      const baseTime = ctx.currentTime + 0.12;
+      const baseTime = ctx.currentTime + 0.16;
       const events = [];
 
       if (isChordExercise) {
@@ -2782,7 +2858,7 @@ export default function IntervalTrainerPage() {
         eventNotes.forEach(({ note, instrument: instrumentConfig }) => {
           const config = instrumentConfig ?? selectedInstrument;
           const sfInstrument = sfMap.get(config.value);
-          const duration = config?.sustain ? Math.max(0.24, baseDuration * 1.02) : Math.max(0.2, baseDuration);
+          const duration = config?.sustain ? Math.max(0.24, baseDuration * 1.01) : Math.max(0.2, baseDuration * (isChordExercise ? 0.995 : 1));
           if (sfInstrument) {
             const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
             activePlayersRef.current.push(player);
