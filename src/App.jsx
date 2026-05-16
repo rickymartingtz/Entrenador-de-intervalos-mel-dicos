@@ -2481,7 +2481,7 @@ export default function IntervalTrainerPage() {
       </div>
 
       {showProgressPanel ? (
-        <div className="fixed inset-0 z-[90] overflow-hidden bg-white/95 p-3 backdrop-blur sm:p-5">
+        <div className="fixed inset-x-0 top-0 bottom-[92px] z-40 overflow-hidden bg-white/95 p-3 backdrop-blur sm:bottom-[108px] sm:p-5">
           <div className="mx-auto flex h-full max-w-[1800px] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 pb-3">
               <div>
@@ -2489,7 +2489,6 @@ export default function IntervalTrainerPage() {
                 <p className="text-sm text-zinc-600">Datos guardados en este ordenador o teléfono.</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => addTimeMark("Puntaje guardado")} className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100">Guardar puntaje</button>
                 <button type="button" onClick={clearTimeMarks} className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100">Borrar marcas</button>
                 <button type="button" onClick={() => setShowProgressPanel(false)} className="rounded-xl border border-zinc-900 bg-zinc-900 px-3 py-2 text-xs font-semibold text-white">Cerrar</button>
               </div>
@@ -2531,7 +2530,7 @@ export default function IntervalTrainerPage() {
                   </div>
                 </div>
               )) : (
-                <p className="rounded-xl border border-dashed border-zinc-200 p-3 text-xs text-zinc-500">Todavía no hay puntajes guardados. Usa “Guardar puntaje” para guardar un corte de tu sesión.</p>
+                <p className="rounded-xl border border-dashed border-zinc-200 p-3 text-xs text-zinc-500">Todavía no hay puntajes guardados. Usa “Guardar puntaje” en la barra inferior para guardar un corte de tu sesión.</p>
               )}
             </div>
           </div>
