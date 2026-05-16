@@ -116,13 +116,28 @@ const DEFAULT_CLEF_KEYS = ["treble"];
 const DEFAULT_DIRECTION_MODE = "random";
 const DEFAULT_TRAINER_MODE = "melodic";
 const DEFAULT_HARMONIC_RESPONSE_MODE = "givenBass";
+const DEFAULT_CHORD_ENTRY_MODE = "gradual";
+const DEFAULT_CHORD_REPEAT = true;
+const DEFAULT_CHORD_GAP_MODE = "withSilence";
+const DEFAULT_CHORD_LINK_MODES = ["common1", "common2", "parallel"];
+const DEFAULT_CHORD_BASS_INSTRUMENT = "cello";
+const DEFAULT_CHORD_MIDDLE_INSTRUMENT = "viola";
+const DEFAULT_CHORD_UPPER_INSTRUMENT = "violin";
 const HARMONIC_MIN_PAIRS = 1;
 const HARMONIC_MAX_PAIRS = 12;
+const CHORD_MIN_COUNT = 1;
+const CHORD_MAX_COUNT = 12;
 const SHORT_DIRECTION_OPTIONS = [
   { key: "random", label: "Libre" },
   { key: "ascending", label: "Ascendente" },
   { key: "descending", label: "Descendente" },
   { key: "mixed", label: "Mixto" },
+];
+
+const CHORD_LINK_OPTIONS = [
+  { key: "common1", label: "1 nota común" },
+  { key: "common2", label: "2 notas comunes" },
+  { key: "parallel", label: "Paralelo" },
 ];
 const SETTINGS_KEY = "intervalTrainer.settings.v11";
 const STATS_KEY = "intervalTrainer.stats.v11";
@@ -368,6 +383,16 @@ const INSTRUMENTS = [
   { value: "leadSaw", label: "Synth lead saw", soundfont: "lead_2_sawtooth", fallback: "organ", sustain: true },
   { value: "warmPad", label: "Pad cálido", soundfont: "pad_2_warm", fallback: "strings", sustain: true },
 ];
+
+function getInstrumentConfig(value) {
+  return INSTRUMENTS.find((item) => item.value === value) ?? INSTRUMENTS.find((item) => item.value === DEFAULT_INSTRUMENT) ?? INSTRUMENTS[0];
+}
+
+function sanitizeChordLinkModes(modes) {
+  const valid = CHORD_LINK_OPTIONS.map((item) => item.key);
+  const cleaned = [...new Set(Array.isArray(modes) ? modes : [])].filter((key) => valid.includes(key));
+  return cleaned.length ? cleaned : DEFAULT_CHORD_LINK_MODES;
+}
 
 const PIANO_KEYS = [
   { pc: 0, name: "C", display: "Do", type: "white" },
@@ -1005,7 +1030,153 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
   };
 }
 
+
+function sortChordVoices(notes) {
+  const sorted = [...notes].sort((a, b) => a.midi - b.midi);
+  return { lower: sorted[0], middle: sorted[1], upper: sorted[2] };
+}
+
+function chordIntervals(chord, allowedIntervalKeys = []) {
+  const voices = [chord.lower, chord.middle, chord.upper].filter(Boolean);
+  if (voices.length < 3) return [];
+  const pairs = [
+    { from: voices[0], to: voices[1], label: "Bajo–Medio" },
+    { from: voices[1], to: voices[2], label: "Medio–Alto" },
+    { from: voices[0], to: voices[2], label: "Bajo–Alto" },
+  ];
+  return pairs.map(({ from, to, label }) => {
+    const diff = Math.abs(to.midi - from.midi);
+    const interval = getIntervalBySemitones(diff % 12 === 0 && diff > 0 ? 12 : diff, allowedIntervalKeys);
+    return `${label}: ${interval?.short ?? `${diff} st`}`;
+  });
+}
+
+function chordUsesSelectedIntervals(chord, selectedIntervalKeys) {
+  const allowed = new Set(sanitizeIntervalSelection(selectedIntervalKeys));
+  if (!allowed.size) return true;
+  const voices = [chord.lower, chord.middle, chord.upper].filter(Boolean);
+  const diffs = [Math.abs(voices[1].midi - voices[0].midi), Math.abs(voices[2].midi - voices[1].midi)];
+  return diffs.every((diff) => INTERVAL_DEFINITIONS.some((interval) => allowed.has(interval.key) && interval.semitones === diff));
+}
+
+function makeChordFromLower(lower, selectedIntervalKeys, clef) {
+  const intervals = sanitizeIntervalSelection(selectedIntervalKeys).map(getIntervalDefinition).filter(Boolean);
+  const usable = intervals.length ? intervals : DEFAULT_INTERVAL_KEYS.map(getIntervalDefinition).filter(Boolean);
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const first = randomItem(usable);
+    const second = randomItem(usable);
+    const middleMidi = lower.midi + first.semitones;
+    const upperMidi = middleMidi + second.semitones;
+    if (middleMidi <= lower.midi || upperMidi <= middleMidi) continue;
+    if (upperMidi > clef.maxMidi || lower.midi < clef.minMidi) continue;
+    return {
+      lower,
+      middle: midiToSimpleNote(middleMidi),
+      upper: midiToSimpleNote(upperMidi),
+      intervalKeys: [first.key, second.key],
+    };
+  }
+  return null;
+}
+
+function makeRandomChord(clef, selectedIntervalKeys, preferCentral = true) {
+  const all = AVAILABLE_NOTES.filter((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi - 2);
+  const central = all.filter((note) => note.midi >= clef.centerMinMidi && note.midi <= Math.min(clef.centerMaxMidi, clef.maxMidi - 2));
+  const pool = preferCentral && central.length ? central : all;
+  for (let attempt = 0; attempt < 160; attempt += 1) {
+    const lower = randomItem(pool.length ? pool : all);
+    const chord = makeChordFromLower(lower, selectedIntervalKeys, clef);
+    if (chord) return chord;
+  }
+  const lower = midiToSimpleNote(clamp(clef.centerMinMidi ?? clef.minMidi, clef.minMidi, clef.maxMidi - 12));
+  return { lower, middle: midiToSimpleNote(lower.midi + 5), upper: midiToSimpleNote(lower.midi + 12), intervalKeys: ["P4", "P5"] };
+}
+
+function transposeChordParallel(chord, selectedIntervalKeys, clef) {
+  const intervals = sanitizeIntervalSelection(selectedIntervalKeys).map(getIntervalDefinition).filter(Boolean);
+  const usable = intervals.length ? intervals : DEFAULT_INTERVAL_KEYS.map(getIntervalDefinition).filter(Boolean);
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const interval = randomItem(usable);
+    const direction = Math.random() > 0.5 ? 1 : -1;
+    const next = [chord.lower, chord.middle, chord.upper].map((note) => midiToSimpleNote(note.midi + direction * interval.semitones));
+    if (next.every((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi)) {
+      const sorted = sortChordVoices(next);
+      return { ...sorted, linkMode: "parallel" };
+    }
+  }
+  return null;
+}
+
+function makeChordWithCommonNotes(previousChord, selectedIntervalKeys, clef, commonCount = 1) {
+  const previousVoices = [previousChord.lower, previousChord.middle, previousChord.upper];
+  for (let attempt = 0; attempt < 160; attempt += 1) {
+    const keep = [...previousVoices].sort(() => Math.random() - 0.5).slice(0, commonCount);
+    const generated = makeRandomChord(clef, selectedIntervalKeys, false);
+    const movingPool = [generated.lower, generated.middle, generated.upper];
+    const combined = [...keep];
+    for (const candidate of movingPool.sort(() => Math.random() - 0.5)) {
+      if (combined.length >= 3) break;
+      if (!combined.some((note) => note.midi === candidate.midi)) combined.push(candidate);
+    }
+    if (combined.length < 3) continue;
+    const sorted = sortChordVoices(combined);
+    if (sorted.lower.midi < clef.minMidi || sorted.upper.midi > clef.maxMidi) continue;
+    const common = [sorted.lower, sorted.middle, sorted.upper].filter((note) => previousVoices.some((prev) => prev.midi === note.midi)).length;
+    if (common >= commonCount) return { ...sorted, linkMode: commonCount === 2 ? "common2" : "common1" };
+  }
+  return null;
+}
+
+function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, selectedLinkModes = DEFAULT_CHORD_LINK_MODES) {
+  const safeCount = clamp(chordCount, CHORD_MIN_COUNT, CHORD_MAX_COUNT);
+  const intervals = sanitizeIntervalSelection(selectedIntervalKeys);
+  const clefKey = randomItem(sanitizeClefSelection(selectedClefKeys));
+  const clef = getClefConfig(clefKey);
+  const linkModes = sanitizeChordLinkModes(selectedLinkModes);
+  const chords = [];
+  let current = makeRandomChord(clef, intervals);
+  chords.push({ ...current, linkMode: "inicio" });
+
+  for (let i = 1; i < safeCount; i += 1) {
+    let next = null;
+    const mode = randomItem(linkModes);
+    const attempts = mode === "parallel" ? ["parallel", "common2", "common1"] : mode === "common2" ? ["common2", "common1", "parallel"] : ["common1", "common2", "parallel"];
+    for (const candidateMode of attempts) {
+      if (candidateMode === "parallel") next = transposeChordParallel(current, intervals, clef);
+      else next = makeChordWithCommonNotes(current, intervals, clef, candidateMode === "common2" ? 2 : 1);
+      if (next) break;
+    }
+    if (!next) next = { ...makeRandomChord(clef, intervals, false), linkMode: "libre" };
+    chords.push(next);
+    current = next;
+  }
+
+  return {
+    id: `${Date.now()}-${Math.random()}`,
+    type: "chords",
+    chords,
+    clefKey,
+    mode: "chords",
+    intervalKeys: intervals,
+    linkModes,
+    startNote: chords[0]?.lower?.label ?? "—",
+  };
+}
+
 function makeInitialAttempts(exercise, harmonicResponseMode = DEFAULT_HARMONIC_RESPONSE_MODE) {
+  if (exercise?.type === "chords") {
+    return (exercise.chords ?? []).map((chord) => ({
+      lower: chord.lower,
+      middle: chord.middle,
+      upper: chord.upper,
+      lowerVisible: false,
+      middleVisible: false,
+      upperVisible: false,
+      lowerStatus: null,
+      middleStatus: null,
+      upperStatus: null,
+    }));
+  }
   if (exercise?.type === "harmonic") {
     return (exercise.pairs ?? []).map((pair, index) => ({
       lower: pair.lower,
@@ -1036,7 +1207,29 @@ function nextHarmonicStepAfter(step, exercise, harmonicResponseMode) {
   return nextPair < exercise.pairs.length ? { pairIndex: nextPair, voice: "lower" } : null;
 }
 
+function firstChordStep(exercise) {
+  if (!exercise?.chords?.length) return null;
+  return { chordIndex: 0, voice: "lower" };
+}
+
+function nextChordStepAfter(step, exercise) {
+  if (!step || !exercise?.chords?.length) return null;
+  if (step.voice === "lower") return { chordIndex: step.chordIndex, voice: "middle" };
+  if (step.voice === "middle") return { chordIndex: step.chordIndex, voice: "upper" };
+  const nextChord = step.chordIndex + 1;
+  return nextChord < exercise.chords.length ? { chordIndex: nextChord, voice: "lower" } : null;
+}
+
 function getExerciseTuningNotes(exercise) {
+  if (exercise?.type === "chords") {
+    const tuningNotes = [];
+    (exercise.chords ?? []).forEach((chord, index) => {
+      if (chord?.lower) tuningNotes.push({ ...chord.lower, tuningRole: `Bajo ${index + 1}` });
+      if (chord?.middle) tuningNotes.push({ ...chord.middle, tuningRole: `Medio ${index + 1}` });
+      if (chord?.upper) tuningNotes.push({ ...chord.upper, tuningRole: `Superior ${index + 1}` });
+    });
+    return tuningNotes;
+  }
   if (exercise?.type === "harmonic") {
     const tuningNotes = [];
     (exercise.pairs ?? []).forEach((pair, index) => {
@@ -1049,6 +1242,9 @@ function getExerciseTuningNotes(exercise) {
 }
 
 function getExerciseIntervalLabels(exercise) {
+  if (exercise?.type === "chords") {
+    return (exercise.chords ?? []).map((chord, index) => `${index + 1}. ${chordIntervals(chord, exercise.intervalKeys).join(" · ")}`);
+  }
   if (exercise?.type === "harmonic") {
     return (exercise.pairs ?? []).map((pair, index) => `${index + 1}. ${pair.intervalShort ?? "—"} armónico`);
   }
@@ -1056,6 +1252,7 @@ function getExerciseIntervalLabels(exercise) {
 }
 
 function getExerciseModelLabels(exercise) {
+  if (exercise?.type === "chords") return [];
   if (exercise?.type === "harmonic") {
     const signatures = (exercise.pairs ?? []).map((pair) => pair.intervalKey);
     const labels = [];
@@ -1081,6 +1278,13 @@ function initialSettings() {
     useTwelveToneSeries: false,
     trainerMode: DEFAULT_TRAINER_MODE,
     harmonicResponseMode: DEFAULT_HARMONIC_RESPONSE_MODE,
+    chordEntryMode: DEFAULT_CHORD_ENTRY_MODE,
+    chordRepeat: DEFAULT_CHORD_REPEAT,
+    chordGapMode: DEFAULT_CHORD_GAP_MODE,
+    selectedChordLinkModes: DEFAULT_CHORD_LINK_MODES,
+    chordBassInstrument: DEFAULT_CHORD_BASS_INSTRUMENT,
+    chordMiddleInstrument: DEFAULT_CHORD_MIDDLE_INSTRUMENT,
+    chordUpperInstrument: DEFAULT_CHORD_UPPER_INSTRUMENT,
   };
   try {
     const stored = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) || "null");
@@ -1095,8 +1299,15 @@ function initialSettings() {
       tempo: clamp(Number(stored.tempo ?? defaults.tempo), MIN_TEMPO, MAX_TEMPO),
       volume: clamp(Number(stored.volume ?? defaults.volume), MIN_VOLUME, MAX_VOLUME),
       instrument: INSTRUMENTS.some((item) => item.value === stored.instrument) ? stored.instrument : DEFAULT_INSTRUMENT,
-      trainerMode: stored.trainerMode === "harmonic" ? "harmonic" : "melodic",
+      trainerMode: ["melodic", "harmonic", "chords"].includes(stored.trainerMode) ? stored.trainerMode : "melodic",
       harmonicResponseMode: stored.harmonicResponseMode === "full" ? "full" : "givenBass",
+      chordEntryMode: stored.chordEntryMode === "direct" ? "direct" : "gradual",
+      chordRepeat: typeof stored.chordRepeat === "boolean" ? stored.chordRepeat : DEFAULT_CHORD_REPEAT,
+      chordGapMode: stored.chordGapMode === "noSilence" ? "noSilence" : "withSilence",
+      selectedChordLinkModes: sanitizeChordLinkModes(stored.selectedChordLinkModes ?? DEFAULT_CHORD_LINK_MODES),
+      chordBassInstrument: INSTRUMENTS.some((item) => item.value === stored.chordBassInstrument) ? stored.chordBassInstrument : DEFAULT_CHORD_BASS_INSTRUMENT,
+      chordMiddleInstrument: INSTRUMENTS.some((item) => item.value === stored.chordMiddleInstrument) ? stored.chordMiddleInstrument : DEFAULT_CHORD_MIDDLE_INSTRUMENT,
+      chordUpperInstrument: INSTRUMENTS.some((item) => item.value === stored.chordUpperInstrument) ? stored.chordUpperInstrument : DEFAULT_CHORD_UPPER_INSTRUMENT,
     };
   } catch {
     return defaults;
@@ -1251,23 +1462,39 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
 
       const clef = getClefConfig(exercise?.clefKey ?? "treble");
       const isHarmonic = exercise?.type === "harmonic";
+      const isChordExercise = exercise?.type === "chords";
       const target = exercise?.sequence ?? [];
-      const fullSlots = isHarmonic
-        ? (exercise?.pairs ?? []).map((pair, index) => {
+      const fullSlots = isChordExercise
+        ? (exercise?.chords ?? []).map((chord, index) => {
             const attempt = (attemptNotes ?? [])[index] ?? {};
             return {
-              lower: attempt.lower ?? pair.lower,
-              upper: attempt.upper ?? pair.upper,
+              lower: attempt.lower ?? chord.lower,
+              middle: attempt.middle ?? chord.middle,
+              upper: attempt.upper ?? chord.upper,
               lowerVisible: Boolean(attempt.lowerVisible),
+              middleVisible: Boolean(attempt.middleVisible),
               upperVisible: Boolean(attempt.upperVisible),
               lowerStatus: attempt.lowerStatus ?? null,
+              middleStatus: attempt.middleStatus ?? null,
               upperStatus: attempt.upperStatus ?? null,
             };
           })
-        : (target.length ? target : attemptNotes.map((entry) => entry.note).filter(Boolean)).map((note, index) => {
-            const attempt = (attemptNotes ?? [])[index];
-            return attempt ? { note: attempt.note ?? note, status: attempt.status, visible: true } : { note, status: "hidden", visible: false };
-          });
+        : isHarmonic
+          ? (exercise?.pairs ?? []).map((pair, index) => {
+              const attempt = (attemptNotes ?? [])[index] ?? {};
+              return {
+                lower: attempt.lower ?? pair.lower,
+                upper: attempt.upper ?? pair.upper,
+                lowerVisible: Boolean(attempt.lowerVisible),
+                upperVisible: Boolean(attempt.upperVisible),
+                lowerStatus: attempt.lowerStatus ?? null,
+                upperStatus: attempt.upperStatus ?? null,
+              };
+            })
+          : (target.length ? target : attemptNotes.map((entry) => entry.note).filter(Boolean)).map((note, index) => {
+              const attempt = (attemptNotes ?? [])[index];
+              return attempt ? { note: attempt.note ?? note, status: attempt.status, visible: true } : { note, status: "hidden", visible: false };
+            });
       const entries = fullSlots;
 
       if (!entries.length) return;
@@ -1316,8 +1543,15 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
 
         const accidentalState = new Map();
         const noteGroups = entries.map((entry) => {
-          if (!isHarmonic) return [{ note: entry.note, role: "single", status: entry.status, visible: entry.visible !== false }];
+          if (!isHarmonic && !isChordExercise) return [{ note: entry.note, role: "single", status: entry.status, visible: entry.visible !== false }];
           const group = [];
+          if (isChordExercise) {
+            if (entry.lowerVisible) group.push({ note: entry.lower, role: "lower", status: entry.lowerStatus, visible: true });
+            if (entry.middleVisible) group.push({ note: entry.middle, role: "middle", status: entry.middleStatus, visible: true });
+            if (entry.upperVisible) group.push({ note: entry.upper, role: "upper", status: entry.upperStatus, visible: true });
+            if (!group.length && entry.lower) group.push({ note: entry.lower, role: "placeholder", status: "hidden", visible: false });
+            return group;
+          }
           if (entry.lowerVisible) group.push({ note: entry.lower, role: "lower", status: entry.lowerStatus, visible: true });
           if (entry.upperVisible) group.push({ note: entry.upper, role: "upper", status: entry.upperStatus, visible: true });
           if (!group.length && entry.lower) group.push({ note: entry.lower, role: "placeholder", status: "hidden", visible: false });
@@ -1464,7 +1698,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
               svg.appendChild(hit);
             };
 
-            if (!isHarmonic) {
+            if (!isHarmonic && !isChordExercise) {
               const y = Array.isArray(ys) && ys.length ? ys[0] : 92;
               if (entry.visible !== false) {
                 drawMark(entry.status, y, "above");
@@ -1477,13 +1711,28 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
                 const y = ys[groupIndex] ?? ys[0] ?? 92;
                 if (item.visible !== false) {
                   groupYs.push(y);
-                  drawMark(item.status, y, item.role === "lower" ? "below" : "above");
+                  if (isChordExercise && (item.status === "correct" || item.status === "wrong")) {
+                    const color = item.status === "correct" ? "#16a34a" : "#dc2626";
+                    const head = document.createElementNS(ns, "ellipse");
+                    head.setAttribute("cx", String(noteX));
+                    head.setAttribute("cy", String(y));
+                    head.setAttribute("rx", "10.5");
+                    head.setAttribute("ry", "7.5");
+                    head.setAttribute("fill", color);
+                    head.setAttribute("opacity", "0.55");
+                    head.setAttribute("pointer-events", "none");
+                    svg.appendChild(head);
+                  } else {
+                    drawMark(item.status, y, item.role === "lower" ? "below" : "above");
+                  }
                 }
               });
-              const groupNotes = group.filter((item) => item.visible !== false).map((item) => item.note).filter(Boolean);
+              const groupNotes = isChordExercise
+                ? [entry.lower, entry.middle, entry.upper].filter(Boolean).map((note, i) => ({ note, voice: ["lower", "middle", "upper"][i] }))
+                : group.filter((item) => item.visible !== false).map((item) => item.note).filter(Boolean);
               if (typeof onNotePress === "function" && groupNotes.length) {
-                const minY = Math.min(...groupYs, 58);
-                const maxY = Math.max(...groupYs, 112);
+                const minY = groupYs.length ? Math.min(...groupYs) : 58;
+                const maxY = groupYs.length ? Math.max(...groupYs) : 112;
                 const hit = document.createElementNS(ns, "rect");
                 hit.setAttribute("x", String(noteX - 28));
                 hit.setAttribute("y", String(minY - 38));
@@ -1494,7 +1743,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
                 hit.setAttribute("opacity", "0.001");
                 hit.setAttribute("pointer-events", "all");
                 hit.setAttribute("style", "cursor:pointer; outline:none; pointer-events:all;");
-                hit.setAttribute("aria-label", "Escuchar intervalo armónico");
+                hit.setAttribute("aria-label", isChordExercise ? "Escuchar acorde" : "Escuchar intervalo armónico");
                 hit.addEventListener("pointerdown", (event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -2110,8 +2359,18 @@ export default function IntervalTrainerPage() {
   const [useTwelveToneSeries, setUseTwelveToneSeries] = useState(saved?.useTwelveToneSeries ?? false);
   const [trainerMode, setTrainerMode] = useState(saved?.trainerMode ?? DEFAULT_TRAINER_MODE);
   const [harmonicResponseMode, setHarmonicResponseMode] = useState(saved?.harmonicResponseMode ?? DEFAULT_HARMONIC_RESPONSE_MODE);
+  const [chordEntryMode, setChordEntryMode] = useState(saved?.chordEntryMode ?? DEFAULT_CHORD_ENTRY_MODE);
+  const [chordRepeat, setChordRepeat] = useState(saved?.chordRepeat ?? DEFAULT_CHORD_REPEAT);
+  const [chordGapMode, setChordGapMode] = useState(saved?.chordGapMode ?? DEFAULT_CHORD_GAP_MODE);
+  const [selectedChordLinkModes, setSelectedChordLinkModes] = useState(saved?.selectedChordLinkModes ?? DEFAULT_CHORD_LINK_MODES);
+  const [chordBassInstrument, setChordBassInstrument] = useState(saved?.chordBassInstrument ?? DEFAULT_CHORD_BASS_INSTRUMENT);
+  const [chordMiddleInstrument, setChordMiddleInstrument] = useState(saved?.chordMiddleInstrument ?? DEFAULT_CHORD_MIDDLE_INSTRUMENT);
+  const [chordUpperInstrument, setChordUpperInstrument] = useState(saved?.chordUpperInstrument ?? DEFAULT_CHORD_UPPER_INSTRUMENT);
   const [exercise, setExercise] = useState(() => {
     const mode = saved?.trainerMode ?? DEFAULT_TRAINER_MODE;
+    if (mode === "chords") {
+      return buildChordSequence(clamp(saved?.noteCount ?? 4, CHORD_MIN_COUNT, CHORD_MAX_COUNT), saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS, saved?.selectedChordLinkModes ?? DEFAULT_CHORD_LINK_MODES);
+    }
     if (mode === "harmonic") {
       return buildHarmonicSequence(clamp(saved?.noteCount ?? 4, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS), saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS);
     }
@@ -2125,6 +2384,7 @@ export default function IntervalTrainerPage() {
   const [attemptNotes, setAttemptNotes] = useState(() => makeInitialAttempts(exercise, saved?.harmonicResponseMode ?? DEFAULT_HARMONIC_RESPONSE_MODE));
   const [nextIndex, setNextIndex] = useState(1);
   const [harmonicStep, setHarmonicStep] = useState(() => firstHarmonicStep(exercise, saved?.harmonicResponseMode ?? DEFAULT_HARMONIC_RESPONSE_MODE));
+  const [chordStep, setChordStep] = useState(() => firstChordStep(exercise));
   const [revealFull, setRevealFull] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [buttonFlash, setButtonFlash] = useState(false);
@@ -2137,11 +2397,16 @@ export default function IntervalTrainerPage() {
   const hasSelectedIntervals = selectedIntervalKeys.length > 0;
   const hasSelectedClefs = selectedClefKeys.length > 0;
   const isHarmonicMode = trainerMode === "harmonic";
+  const isChordMode = trainerMode === "chords";
   const twelveToneUsableIntervals = useMemo(() => getTwelveToneIntervalKeys(selectedIntervalKeys), [selectedIntervalKeys]);
-  const canGenerate = hasSelectedIntervals && hasSelectedClefs && (isHarmonicMode || !useTwelveToneSeries || twelveToneUsableIntervals.length > 0);
-  const safeNoteCount = isHarmonicMode ? clamp(noteCount, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS) : (useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES));
-  const expectedNote = isHarmonicMode && harmonicStep ? exercise.pairs?.[harmonicStep.pairIndex]?.[harmonicStep.voice] : exercise.sequence?.[nextIndex] ?? null;
-  const exerciseComplete = isHarmonicMode ? harmonicStep == null : nextIndex >= (exercise.sequence?.length ?? 0);
+  const canGenerate = hasSelectedIntervals && hasSelectedClefs && (!isChordMode || selectedChordLinkModes.length > 0) && (isHarmonicMode || isChordMode || !useTwelveToneSeries || twelveToneUsableIntervals.length > 0);
+  const safeNoteCount = isChordMode ? clamp(noteCount, CHORD_MIN_COUNT, CHORD_MAX_COUNT) : (isHarmonicMode ? clamp(noteCount, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS) : (useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES)));
+  const expectedNote = isChordMode && chordStep
+    ? exercise.chords?.[chordStep.chordIndex]?.[chordStep.voice]
+    : isHarmonicMode && harmonicStep
+      ? exercise.pairs?.[harmonicStep.pairIndex]?.[harmonicStep.voice]
+      : exercise.sequence?.[nextIndex] ?? null;
+  const exerciseComplete = isChordMode ? chordStep == null : (isHarmonicMode ? harmonicStep == null : nextIndex >= (exercise.sequence?.length ?? 0));
   const score = scoreFromStats(stats);
   const savedTotals = useMemo(() => {
     const totals = timeMarks.reduce((acc, mark) => {
@@ -2161,11 +2426,11 @@ export default function IntervalTrainerPage() {
   const modelLabels = useMemo(() => getExerciseModelLabels(exercise), [exercise]);
   const tuningNotes = useMemo(() => getExerciseTuningNotes(exercise), [exercise]);
   const visibleDirectionOptions = useMemo(() => {
-    if (isHarmonicMode || useTwelveToneSeries) return [];
+    if (isHarmonicMode || isChordMode || useTwelveToneSeries) return [];
     if (noteCount === 2) return SHORT_DIRECTION_OPTIONS.filter((option) => option.key !== "mixed");
     if (noteCount === 3) return SHORT_DIRECTION_OPTIONS;
     return [];
-  }, [isHarmonicMode, noteCount, useTwelveToneSeries]);
+  }, [isChordMode, isHarmonicMode, noteCount, useTwelveToneSeries]);
 
   useEffect(() => {
     if (isTimerPaused) return undefined;
@@ -2188,9 +2453,16 @@ export default function IntervalTrainerPage() {
         useTwelveToneSeries,
         trainerMode,
         harmonicResponseMode,
+        chordEntryMode,
+        chordRepeat,
+        chordGapMode,
+        selectedChordLinkModes,
+        chordBassInstrument,
+        chordMiddleInstrument,
+        chordUpperInstrument,
       }));
     } catch {}
-  }, [directionMode, harmonicResponseMode, instrument, noteCount, selectedClefKeys, selectedIntervalKeys, tempo, trainerMode, useTwelveToneSeries, volume]);
+  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordMiddleInstrument, chordRepeat, chordUpperInstrument, directionMode, harmonicResponseMode, instrument, noteCount, selectedChordLinkModes, selectedClefKeys, selectedIntervalKeys, tempo, trainerMode, useTwelveToneSeries, volume]);
 
   useEffect(() => {
     try {
@@ -2375,42 +2647,89 @@ export default function IntervalTrainerPage() {
 
   const playExercise = useCallback(async (exerciseToPlay = exercise) => {
     const isHarmonic = exerciseToPlay?.type === "harmonic";
-    const playableGroups = isHarmonic
-      ? (exerciseToPlay?.pairs ?? []).map((pair) => [pair.lower, pair.upper])
-      : (exerciseToPlay?.sequence ?? []).map((note) => [note]);
-    if (!playableGroups.length) return;
+    const isChordExercise = exerciseToPlay?.type === "chords";
     const sessionId = playbackSessionRef.current + 1;
     playbackSessionRef.current = sessionId;
     setIsPlaying(true);
     stopAllAudio();
+
     try {
       const ctx = await ensureAudioContext();
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
-      const step = secondsPerBeat;
-      const noteDuration = selectedInstrument?.sustain ? Math.max(0.24, step * 0.99) : Math.max(0.2, step * 0.92);
+      const gapMultiplier = chordGapMode === "noSilence" ? 0.96 : 1;
+      const step = secondsPerBeat * gapMultiplier;
+      const baseDuration = chordGapMode === "noSilence" ? step * 0.96 : step * 0.72;
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
-      let sfInstrument = null;
-      try {
-        sfInstrument = await getSoundfontInstrument(ctx, selectedInstrument);
-      } catch (error) {
-        console.warn("No se pudo cargar SoundFont. Usando síntesis interna.", error);
-      }
+      const instrumentConfigs = isChordExercise
+        ? {
+            lower: getInstrumentConfig(chordBassInstrument),
+            middle: getInstrumentConfig(chordMiddleInstrument),
+            upper: getInstrumentConfig(chordUpperInstrument),
+          }
+        : { single: selectedInstrument };
+
+      const neededConfigs = isChordExercise
+        ? [instrumentConfigs.lower, instrumentConfigs.middle, instrumentConfigs.upper]
+        : [selectedInstrument];
+      const sfMap = new Map();
+      await Promise.all(neededConfigs.map(async (config) => {
+        if (!config?.soundfont || sfMap.has(config.value)) return;
+        try {
+          const sf = await getSoundfontInstrument(ctx, config);
+          sfMap.set(config.value, sf);
+        } catch (error) {
+          console.warn("No se pudo cargar SoundFont. Usando síntesis interna.", error);
+          sfMap.set(config.value, null);
+        }
+      }));
+
       if (sessionId !== playbackSessionRef.current) return;
       stopAllAudio();
-
-      // Importante: calcular el tiempo base DESPUÉS de cargar el SoundFont.
-      // Si se calcula antes, el primer uso de un instrumento nuevo puede programar
-      // las primeras notas en el pasado y el navegador las dispara casi juntas.
       const baseTime = ctx.currentTime + 0.12;
+      const events = [];
 
-      playableGroups.forEach((group, index) => {
+      if (isChordExercise) {
+        (exerciseToPlay?.chords ?? []).forEach((chord) => {
+          const lower = { note: chord.lower, instrument: instrumentConfigs.lower, voice: "lower" };
+          const middle = { note: chord.middle, instrument: instrumentConfigs.middle, voice: "middle" };
+          const upper = { note: chord.upper, instrument: instrumentConfigs.upper, voice: "upper" };
+          if (chordEntryMode === "gradual") {
+            events.push([lower]);
+            if (chordRepeat) events.push([lower]);
+            events.push([lower, middle]);
+            if (chordRepeat) events.push([lower, middle]);
+            events.push([lower, middle, upper]);
+            if (chordRepeat) events.push([lower, middle, upper]);
+          } else {
+            events.push([lower, middle, upper]);
+            if (chordRepeat) events.push([lower, middle, upper]);
+          }
+        });
+      } else if (isHarmonic) {
+        (exerciseToPlay?.pairs ?? []).forEach((pair) => events.push([
+          { note: pair.lower, instrument: selectedInstrument, voice: "lower" },
+          { note: pair.upper, instrument: selectedInstrument, voice: "upper" },
+        ]));
+      } else {
+        (exerciseToPlay?.sequence ?? []).forEach((note) => events.push([{ note, instrument: selectedInstrument, voice: "single" }]));
+      }
+
+      if (!events.length) {
+        setIsPlaying(false);
+        return;
+      }
+
+      events.forEach((eventNotes, index) => {
         const start = baseTime + index * step;
-        group.forEach((note) => {
+        eventNotes.forEach(({ note, instrument: instrumentConfig }) => {
+          const config = instrumentConfig ?? selectedInstrument;
+          const sfInstrument = sfMap.get(config.value);
+          const duration = config?.sustain ? Math.max(0.24, baseDuration * 1.02) : Math.max(0.2, baseDuration);
           if (sfInstrument) {
-            const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration: noteDuration, gain });
+            const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
             activePlayersRef.current.push(player);
           } else {
-            createFallbackVoice(ctx, midiToFreq(note.midi), selectedInstrument?.fallback ?? "piano", start, noteDuration, volume);
+            createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, volume);
           }
         });
       });
@@ -2421,70 +2740,110 @@ export default function IntervalTrainerPage() {
           setIsPlaying(false);
           playbackTimeoutRef.current = null;
         }
-      }, playableGroups.length * step * 1000 + 550);
+      }, events.length * step * 1000 + 550);
     } catch (error) {
       console.error("Error al reproducir:", error);
       if (sessionId === playbackSessionRef.current) setIsPlaying(false);
     }
-  }, [createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, selectedInstrument, stopAllAudio, tempo, volume]);
+  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordMiddleInstrument, chordRepeat, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, selectedInstrument, stopAllAudio, tempo, volume]);
 
   const playSingleNote = useCallback(async (noteOrNotes) => {
-    const notesToPlay = Array.isArray(noteOrNotes) ? noteOrNotes.filter(Boolean) : [noteOrNotes].filter(Boolean);
-    if (!notesToPlay.length) return;
+    const rawItems = Array.isArray(noteOrNotes) ? noteOrNotes.filter(Boolean) : [noteOrNotes].filter(Boolean);
+    if (!rawItems.length) return;
+    const items = rawItems.map((item) => {
+      if (item?.note) return item;
+      return { note: item, voice: "single" };
+    }).filter((item) => item.note);
     const sessionId = playbackSessionRef.current + 1;
     playbackSessionRef.current = sessionId;
     stopAllAudio();
     setIsPlaying(false);
     try {
       const ctx = await ensureAudioContext();
-      const duration = selectedInstrument?.sustain ? 1.15 : 0.95;
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
-      let sfInstrument = null;
-      try {
-        sfInstrument = await getSoundfontInstrument(ctx, selectedInstrument);
-      } catch (error) {
-        console.warn("No se pudo cargar SoundFont para nota aislada. Usando síntesis interna.", error);
-      }
+      const configs = items.map((item) => {
+        if (item.voice === "lower") return getInstrumentConfig(chordBassInstrument);
+        if (item.voice === "middle") return getInstrumentConfig(chordMiddleInstrument);
+        if (item.voice === "upper") return getInstrumentConfig(chordUpperInstrument);
+        return selectedInstrument;
+      });
+      const sfMap = new Map();
+      await Promise.all(configs.map(async (config) => {
+        if (!config?.soundfont || sfMap.has(config.value)) return;
+        try {
+          const sf = await getSoundfontInstrument(ctx, config);
+          sfMap.set(config.value, sf);
+        } catch (error) {
+          console.warn("No se pudo cargar SoundFont para nota aislada. Usando síntesis interna.", error);
+          sfMap.set(config.value, null);
+        }
+      }));
       if (sessionId !== playbackSessionRef.current) return;
-
-      // Igual que en la reproducción completa: programar después de cargar muestras.
       const start = ctx.currentTime + 0.06;
-
-      notesToPlay.forEach((note) => {
+      items.forEach((item, index) => {
+        const note = item.note;
+        const config = configs[index] ?? selectedInstrument;
+        const duration = config?.sustain ? 1.15 : 0.95;
+        const sfInstrument = sfMap.get(config.value);
         if (sfInstrument) {
           const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
           activePlayersRef.current.push(player);
         } else {
-          createFallbackVoice(ctx, midiToFreq(note.midi), selectedInstrument?.fallback ?? "piano", start, duration, volume);
+          createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, volume);
         }
       });
     } catch (error) {
       console.error("Error al reproducir la nota:", error);
     }
-  }, [createFallbackVoice, ensureAudioContext, getSoundfontInstrument, selectedInstrument, stopAllAudio, volume]);
+  }, [chordBassInstrument, chordMiddleInstrument, chordUpperInstrument, createFallbackVoice, ensureAudioContext, getSoundfontInstrument, selectedInstrument, stopAllAudio, volume]);
 
   const startExercise = useCallback(() => {
     if (!canGenerate) return;
-    const count = isHarmonicMode ? clamp(noteCount, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS) : (useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES));
-    const nextExercise = isHarmonicMode
-      ? buildHarmonicSequence(count, selectedIntervalKeys, selectedClefKeys)
-      : (useTwelveToneSeries
-        ? buildTwelveToneSeries(count, selectedIntervalKeys, selectedClefKeys)
-        : buildMelody(count, selectedIntervalKeys, selectedClefKeys, directionMode));
+    const count = isChordMode
+      ? clamp(noteCount, CHORD_MIN_COUNT, CHORD_MAX_COUNT)
+      : (isHarmonicMode ? clamp(noteCount, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS) : (useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES)));
+    const nextExercise = isChordMode
+      ? buildChordSequence(count, selectedIntervalKeys, selectedClefKeys, selectedChordLinkModes)
+      : (isHarmonicMode
+        ? buildHarmonicSequence(count, selectedIntervalKeys, selectedClefKeys)
+        : (useTwelveToneSeries
+          ? buildTwelveToneSeries(count, selectedIntervalKeys, selectedClefKeys)
+          : buildMelody(count, selectedIntervalKeys, selectedClefKeys, directionMode)));
     setExercise(nextExercise);
     setAttemptNotes(makeInitialAttempts(nextExercise, harmonicResponseMode));
     setNextIndex(1);
     setHarmonicStep(firstHarmonicStep(nextExercise, harmonicResponseMode));
+    setChordStep(firstChordStep(nextExercise));
     setRevealFull(false);
     setStats((current) => ({ ...current, exercises: current.exercises + 1 }));
     setButtonFlash(true);
     window.setTimeout(() => setButtonFlash(false), 420);
     playExercise(nextExercise);
-  }, [canGenerate, directionMode, harmonicResponseMode, isHarmonicMode, noteCount, playExercise, selectedClefKeys, selectedIntervalKeys, useTwelveToneSeries]);
+  }, [canGenerate, directionMode, harmonicResponseMode, isChordMode, isHarmonicMode, noteCount, playExercise, selectedChordLinkModes, selectedClefKeys, selectedIntervalKeys, useTwelveToneSeries]);
 
   const handleKeyboardPress = useCallback((pc) => {
     if (!expectedNote || revealFull) return;
     const correct = pitchClassOf(expectedNote) === pc;
+    if (isChordMode && chordStep) {
+      setAttemptNotes((current) => current.map((entry, index) => {
+        if (index !== chordStep.chordIndex) return entry;
+        const next = { ...entry };
+        if (chordStep.voice === "lower") {
+          next.lowerVisible = true;
+          next.lowerStatus = correct ? "correct" : "wrong";
+        } else if (chordStep.voice === "middle") {
+          next.middleVisible = true;
+          next.middleStatus = correct ? "correct" : "wrong";
+        } else {
+          next.upperVisible = true;
+          next.upperStatus = correct ? "correct" : "wrong";
+        }
+        return next;
+      }));
+      setChordStep(nextChordStepAfter(chordStep, exercise));
+      setStats((current) => ({ ...current, correct: current.correct + (correct ? 1 : 0), incorrect: current.incorrect + (correct ? 0 : 1) }));
+      return;
+    }
     if (isHarmonicMode && harmonicStep) {
       setAttemptNotes((current) => current.map((entry, index) => {
         if (index !== harmonicStep.pairIndex) return entry;
@@ -2511,10 +2870,24 @@ export default function IntervalTrainerPage() {
       setNextIndex((current) => current + 1);
       setStats((current) => ({ ...current, incorrect: current.incorrect + 1 }));
     }
-  }, [expectedNote, exercise, harmonicResponseMode, harmonicStep, isHarmonicMode, revealFull]);
+  }, [chordStep, expectedNote, exercise, harmonicResponseMode, harmonicStep, isChordMode, isHarmonicMode, revealFull]);
 
   const handleRevealFullAnswer = useCallback(() => {
     if (revealFull) return;
+    if (isChordMode) {
+      let addedErrors = 0;
+      setAttemptNotes((current) => current.map((entry) => {
+        const next = { ...entry };
+        if (!next.lowerVisible) { next.lowerVisible = true; next.lowerStatus = "wrong"; addedErrors += 1; }
+        if (!next.middleVisible) { next.middleVisible = true; next.middleStatus = "wrong"; addedErrors += 1; }
+        if (!next.upperVisible) { next.upperVisible = true; next.upperStatus = "wrong"; addedErrors += 1; }
+        return next;
+      }));
+      setChordStep(null);
+      if (addedErrors > 0) setStats((current) => ({ ...current, incorrect: current.incorrect + addedErrors }));
+      setRevealFull(true);
+      return;
+    }
     if (isHarmonicMode) {
       let addedErrors = 0;
       setAttemptNotes((current) => current.map((entry) => {
@@ -2535,7 +2908,7 @@ export default function IntervalTrainerPage() {
       setStats((current) => ({ ...current, incorrect: current.incorrect + remainingEntries.length }));
     }
     setRevealFull(true);
-  }, [exercise.sequence, isHarmonicMode, nextIndex, revealFull]);
+  }, [exercise, isChordMode, isHarmonicMode, nextIndex, revealFull]);
 
   const toggleInterval = useCallback((intervalKey) => {
     setSelectedIntervalKeys((current) => {
@@ -2556,6 +2929,15 @@ export default function IntervalTrainerPage() {
   const deselectAllIntervals = useCallback(() => setSelectedIntervalKeys([]), []);
   const selectAllClefs = useCallback(() => setSelectedClefKeys(CLEFS.map((item) => item.key)), []);
   const deselectAllClefs = useCallback(() => setSelectedClefKeys([]), []);
+  const toggleChordLinkMode = useCallback((modeKey) => {
+    setSelectedChordLinkModes((current) => {
+      const exists = current.includes(modeKey);
+      const next = exists ? current.filter((key) => key !== modeKey) : sanitizeChordLinkModes([...current, modeKey]);
+      return next;
+    });
+  }, []);
+  const selectAllChordLinkModes = useCallback(() => setSelectedChordLinkModes(CHORD_LINK_OPTIONS.map((item) => item.key)), []);
+  const deselectAllChordLinkModes = useCallback(() => setSelectedChordLinkModes([]), []);
 
   const addTimeMark = useCallback((label = "Marca de estudio") => {
     setTimeMarks((current) => {
@@ -2609,10 +2991,18 @@ export default function IntervalTrainerPage() {
     setUseTwelveToneSeries(false);
     setTrainerMode(DEFAULT_TRAINER_MODE);
     setHarmonicResponseMode(DEFAULT_HARMONIC_RESPONSE_MODE);
+    setChordEntryMode(DEFAULT_CHORD_ENTRY_MODE);
+    setChordRepeat(DEFAULT_CHORD_REPEAT);
+    setChordGapMode(DEFAULT_CHORD_GAP_MODE);
+    setSelectedChordLinkModes(DEFAULT_CHORD_LINK_MODES);
+    setChordBassInstrument(DEFAULT_CHORD_BASS_INSTRUMENT);
+    setChordMiddleInstrument(DEFAULT_CHORD_MIDDLE_INSTRUMENT);
+    setChordUpperInstrument(DEFAULT_CHORD_UPPER_INSTRUMENT);
     setExercise(freshExercise);
     setAttemptNotes(makeInitialAttempts(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
     setNextIndex(1);
     setHarmonicStep(firstHarmonicStep(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
+    setChordStep(firstChordStep(freshExercise));
     setRevealFull(false);
     try {
       window.localStorage.removeItem(SETTINGS_KEY);
@@ -2623,6 +3013,9 @@ export default function IntervalTrainerPage() {
     if (trainerMode === "harmonic") {
       setUseTwelveToneSeries(false);
       setNoteCount((current) => clamp(current, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS));
+    } else if (trainerMode === "chords") {
+      setUseTwelveToneSeries(false);
+      setNoteCount((current) => clamp(current, CHORD_MIN_COUNT, CHORD_MAX_COUNT));
     }
   }, [trainerMode]);
 
@@ -2646,7 +3039,7 @@ export default function IntervalTrainerPage() {
     <div className="min-h-screen overflow-x-hidden bg-zinc-100 px-3 py-4 pb-56 text-zinc-950 sm:px-6 sm:py-6 sm:pb-44 md:px-10 md:py-10 md:pb-36">
       <div className="mx-auto max-w-[1600px] space-y-4 sm:space-y-6">
         <header className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Entrenador de intervalos · Método Aural</h1><div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => setTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button></div></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Entrenador de intervalos · Método Aural</h1><div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => setTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button><button type="button" onClick={() => setTrainerMode("chords")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "chords" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Acordes</button></div></div>
         </header>
 
         <section className="grid gap-4 sm:gap-6 xl:grid-cols-[0.95fr_1.05fr]">
@@ -2654,21 +3047,21 @@ export default function IntervalTrainerPage() {
             <div className="space-y-5 sm:space-y-6">
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm font-medium text-zinc-700">{isHarmonicMode ? "Número de pares" : "Número de notas"}</span>
-                  <Badge>{safeNoteCount} {isHarmonicMode ? "pares" : "notas"}</Badge>
+                  <span className="text-sm font-medium text-zinc-700">{isChordMode ? "Número de acordes" : (isHarmonicMode ? "Número de pares" : "Número de notas")}</span>
+                  <Badge>{safeNoteCount} {isChordMode ? "acordes" : (isHarmonicMode ? "pares" : "notas")}</Badge>
                 </div>
                 <input
                   type="range"
-                  min={isHarmonicMode ? HARMONIC_MIN_PAIRS : (useTwelveToneSeries ? TWELVE_TONE_MIN_NOTES : MIN_NOTES)}
-                  max={isHarmonicMode ? HARMONIC_MAX_PAIRS : (useTwelveToneSeries ? TWELVE_TONE_MAX_NOTES : MAX_NOTES)}
+                  min={isChordMode ? CHORD_MIN_COUNT : (isHarmonicMode ? HARMONIC_MIN_PAIRS : (useTwelveToneSeries ? TWELVE_TONE_MIN_NOTES : MIN_NOTES))}
+                  max={isChordMode ? CHORD_MAX_COUNT : (isHarmonicMode ? HARMONIC_MAX_PAIRS : (useTwelveToneSeries ? TWELVE_TONE_MAX_NOTES : MAX_NOTES))}
                   step={1}
                   value={safeNoteCount}
                   onChange={(event) => setNoteCount(Number(event.target.value))}
                   className="w-full accent-sky-600"
                 />
                 <div className="flex justify-between text-xs text-zinc-500">
-                  <span>{isHarmonicMode ? 1 : (useTwelveToneSeries ? 4 : 2)}</span>
-                  <span>{isHarmonicMode ? 12 : (useTwelveToneSeries ? 12 : 24)}</span>
+                  <span>{isChordMode ? 1 : (isHarmonicMode ? 1 : (useTwelveToneSeries ? 4 : 2))}</span>
+                  <span>{isChordMode ? 12 : (isHarmonicMode ? 12 : (useTwelveToneSeries ? 12 : 24))}</span>
                 </div>
               </div>
 
@@ -2708,12 +3101,32 @@ export default function IntervalTrainerPage() {
                     </SelectionChip>
                   ))}
                 </div>
-                {!isHarmonicMode ? (<div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3">
+                {isChordMode ? (
+                  <div className="space-y-3 border-t border-zinc-100 pt-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <SelectionChip active={chordEntryMode === "gradual"} onClick={() => setChordEntryMode("gradual")}>Entrada gradual</SelectionChip>
+                      <SelectionChip active={chordEntryMode === "direct"} onClick={() => setChordEntryMode("direct")}>Entrada directa</SelectionChip>
+                      <SelectionChip active={chordRepeat} onClick={() => setChordRepeat((current) => !current)}>{chordRepeat ? "Con repetición" : "Sin repetición"}</SelectionChip>
+                      <SelectionChip active={chordGapMode === "withSilence"} onClick={() => setChordGapMode((current) => current === "withSilence" ? "noSilence" : "withSilence")}>{chordGapMode === "withSilence" ? "Con silencio" : "Sin silencio"}</SelectionChip>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Enlace entre acordes</span>
+                        <div className="flex gap-2"><button type="button" onClick={selectAllChordLinkModes} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500">Todos</button><button type="button" onClick={deselectAllChordLinkModes} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-500">Ninguno</button></div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {CHORD_LINK_OPTIONS.map((option) => <SelectionChip key={option.key} active={selectedChordLinkModes.includes(option.key)} onClick={() => toggleChordLinkMode(option.key)}>{option.label}</SelectionChip>)}
+                      </div>
+                    </div>
+                  </div>
+                ) : !isHarmonicMode ? (<div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3">
                   <SelectionChip active={useTwelveToneSeries} onClick={() => setUseTwelveToneSeries((current) => !current)} title="Serie dodecafónica">Serie dodecafónica</SelectionChip>
                   <span className="text-xs text-zinc-500">Sin repetir clases de altura; disponible de 4 a 12 notas.</span>
                 </div>) : (<div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3"><SelectionChip active={harmonicResponseMode === "givenBass"} onClick={() => setHarmonicResponseMode("givenBass")}>Bajo dado</SelectionChip><SelectionChip active={harmonicResponseMode === "full"} onClick={() => setHarmonicResponseMode("full")}>Solo bajo inicial</SelectionChip><span className="text-xs text-zinc-500">Responde siempre de inferior a superior.</span></div>)}
                 {!hasSelectedIntervals ? (
                   <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Selecciona al menos un intervalo para generar.</p>
+                ) : isChordMode && selectedChordLinkModes.length === 0 ? (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Selecciona al menos un tipo de enlace entre acordes.</p>
                 ) : useTwelveToneSeries && twelveToneUsableIntervals.length === 0 ? (
                   <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">La 8J no puede funcionar sola en serie dodecafónica porque repite la misma clase de altura.</p>
                 ) : null}
@@ -2749,14 +3162,31 @@ export default function IntervalTrainerPage() {
                 </div>
               </div>
 
-              <div className="grid gap-6">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Instrumento</span><Badge>{selectedInstrument?.label}</Badge></div>
-                  <select value={instrument} onChange={(event) => setInstrument(event.target.value)} className="w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">
-                    {INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                  </select>
+              {isChordMode ? (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Bajo</span><Badge>{getInstrumentConfig(chordBassInstrument)?.label}</Badge></div>
+                    <select value={chordBassInstrument} onChange={(event) => setChordBassInstrument(event.target.value)} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Voz media</span><Badge>{getInstrumentConfig(chordMiddleInstrument)?.label}</Badge></div>
+                    <select value={chordMiddleInstrument} onChange={(event) => setChordMiddleInstrument(event.target.value)} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Voz alta</span><Badge>{getInstrumentConfig(chordUpperInstrument)?.label}</Badge></div>
+                    <select value={chordUpperInstrument} onChange={(event) => setChordUpperInstrument(event.target.value)} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="grid gap-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Instrumento</span><Badge>{selectedInstrument?.label}</Badge></div>
+                    <select value={instrument} onChange={(event) => setInstrument(event.target.value)} className="w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">
+                      {INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
 
             </div>
           </div>
@@ -2794,7 +3224,7 @@ export default function IntervalTrainerPage() {
 
               {exerciseComplete || revealFull ? (
                 <div className="mt-4 grid gap-3 sm:gap-4 lg:grid-cols-2">
-                  {!isHarmonicMode ? (
+                  {(!isHarmonicMode && !isChordMode) ? (
                     <div className="rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
                       <p className="text-sm font-medium text-zinc-500">Modelos reconocibles en la sucesión</p>
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -2808,7 +3238,7 @@ export default function IntervalTrainerPage() {
                   ) : null}
 
                   <div className="rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
-                    <p className="text-sm font-medium text-zinc-500">{isHarmonicMode ? "Intervalos armónicos escuchados" : "Saltos entre notas consecutivas"}</p>
+                    <p className="text-sm font-medium text-zinc-500">{isChordMode ? "Intervalos de los acordes escuchados" : (isHarmonicMode ? "Intervalos armónicos escuchados" : "Saltos entre notas consecutivas")}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {intervalLabels.map((item, index) => <Badge key={`${item}-${index}`}>{item}</Badge>)}
                     </div>
@@ -2855,7 +3285,7 @@ export default function IntervalTrainerPage() {
                         <span>Aciertos: {mark.correct}</span>
                         <span>Errores: {mark.incorrect}</span>
                         <span>Puntuación: {mark.score}/100</span>
-                        <span>Modo: {mark.trainerMode === "harmonic" ? "Armónicos" : "Melódicos"}</span>
+                        <span>Modo: {mark.trainerMode === "chords" ? "Acordes" : (mark.trainerMode === "harmonic" ? "Armónicos" : "Melódicos")}</span>
                       </div>
                     </div>
                     <button
