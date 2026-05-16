@@ -151,6 +151,7 @@ const CLEFS = [
   { key: "mezzo", label: "Clave de Do en II", symbol: "𝄡", tag: "II", vex: "mezzo-soprano", minMidi: 57, maxMidi: 81, centerMinMidi: 60, centerMaxMidi: 72, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 86 },
   { key: "alto", label: "Clave de Do en III", symbol: "𝄡", tag: "III", vex: "alto", minMidi: 53, maxMidi: 77, centerMinMidi: 57, centerMaxMidi: 69, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 72 },
   { key: "tenor", label: "Clave de Do en IV", symbol: "𝄡", tag: "IV", vex: "tenor", minMidi: 48, maxMidi: 72, centerMinMidi: 52, centerMaxMidi: 64, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 58 },
+  { key: "baritoneF", label: "Clave de Fa en III", symbol: "𝄢", tag: "", vex: "baritone-f", minMidi: 43, maxMidi: 67, centerMinMidi: 47, centerMaxMidi: 60, staffRefLetter: "F", staffRefOctave: 3, staffRefY: 72 },
   { key: "bass", label: "Clave de Fa", symbol: "𝄢", tag: "", vex: "bass", minMidi: 36, maxMidi: 64, centerMinMidi: 40, centerMaxMidi: 55, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
   { key: "bass8vb", label: "Clave de Fa 8va baja", symbol: "𝄢", tag: "8vb", clefAnnotation: "8vb", vex: "bass", displayOctaveShift: 1, minMidi: 24, maxMidi: 52, centerMinMidi: 28, centerMaxMidi: 43, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
 ];
@@ -287,24 +288,85 @@ const MODEL_PATTERNS = [
 ];
 
 const INSTRUMENTS = [
+  // Voces
   { value: "voiceOohs", label: "Voz Oohs", soundfont: "voice_oohs", fallback: "voice", sustain: true },
   { value: "synthVoice", label: "Voz sintética", soundfont: "synth_voice", fallback: "voice", sustain: true },
-  { value: "churchOrgan", label: "Órgano de iglesia", soundfont: "church_organ", fallback: "organ", sustain: true },
+
+  // Teclados
+  { value: "piano", label: "Piano acústico", soundfont: "acoustic_grand_piano", fallback: "piano", sustain: false },
+  { value: "brightPiano", label: "Piano brillante", soundfont: "bright_acoustic_piano", fallback: "piano", sustain: false },
+  { value: "electricPiano1", label: "Piano eléctrico I", soundfont: "electric_piano_1", fallback: "piano", sustain: false },
+  { value: "electricPiano2", label: "Piano eléctrico II", soundfont: "electric_piano_2", fallback: "piano", sustain: false },
+  { value: "harpsichord", label: "Clave / harpsichord", soundfont: "harpsichord", fallback: "piano", sustain: false },
+  { value: "clavinet", label: "Clavinet", soundfont: "clavinet", fallback: "piano", sustain: false },
+  { value: "celesta", label: "Celesta", soundfont: "celesta", fallback: "mallet", sustain: false },
+  { value: "musicBox", label: "Caja de música", soundfont: "music_box", fallback: "mallet", sustain: false },
+
+  // Órganos populares / de lengüeta
   { value: "drawbarOrgan", label: "Órgano drawbar", soundfont: "drawbar_organ", fallback: "organ", sustain: true },
+  { value: "percussiveOrgan", label: "Órgano percusivo", soundfont: "percussive_organ", fallback: "organ", sustain: true },
+  { value: "rockOrgan", label: "Órgano rock", soundfont: "rock_organ", fallback: "organ", sustain: true },
   { value: "reedOrgan", label: "Órgano de lengüeta", soundfont: "reed_organ", fallback: "organ", sustain: true },
-  { value: "strings1", label: "Cuerdas I", soundfont: "string_ensemble_1", fallback: "strings", sustain: true },
-  { value: "strings2", label: "Cuerdas II", soundfont: "string_ensemble_2", fallback: "strings", sustain: true },
+  { value: "accordion", label: "Acordeón", soundfont: "accordion", fallback: "organ", sustain: true },
+  { value: "harmonica", label: "Armónica", soundfont: "harmonica", fallback: "voice", sustain: true },
+
+  // Cuerdas orquestales
+  { value: "strings", label: "Cuerdas", soundfont: "string_ensemble_2", fallback: "strings", sustain: true },
   { value: "violin", label: "Violín", soundfont: "violin", fallback: "strings", sustain: true },
   { value: "viola", label: "Viola", soundfont: "viola", fallback: "strings", sustain: true },
   { value: "cello", label: "Violonchelo", soundfont: "cello", fallback: "strings", sustain: true },
-  { value: "piano", label: "Piano acústico", soundfont: "acoustic_grand_piano", fallback: "piano", sustain: false },
-  { value: "electricPiano", label: "Piano eléctrico", soundfont: "electric_piano_1", fallback: "piano", sustain: false },
-  { value: "harpsichord", label: "Clave / harpsichord", soundfont: "harpsichord", fallback: "piano", sustain: false },
-  { value: "celesta", label: "Celesta", soundfont: "celesta", fallback: "mallet", sustain: false },
-  { value: "musicBox", label: "Caja de música", soundfont: "music_box", fallback: "mallet", sustain: false },
+  { value: "contrabass", label: "Contrabajo", soundfont: "contrabass", fallback: "strings", sustain: true },
+  { value: "pizzicatoStrings", label: "Cuerdas pizzicato", soundfont: "pizzicato_strings", fallback: "mallet", sustain: false },
+  { value: "tremoloStrings", label: "Cuerdas trémolo", soundfont: "tremolo_strings", fallback: "strings", sustain: true },
+  { value: "orchestralHarp", label: "Arpa orquestal", soundfont: "orchestral_harp", fallback: "piano", sustain: false },
+
+  // Maderas
+  { value: "piccolo", label: "Piccolo", soundfont: "piccolo", fallback: "voice", sustain: true },
+  { value: "flute", label: "Flauta", soundfont: "flute", fallback: "voice", sustain: true },
+  { value: "recorder", label: "Flauta dulce", soundfont: "recorder", fallback: "voice", sustain: true },
+  { value: "oboe", label: "Oboe", soundfont: "oboe", fallback: "voice", sustain: true },
+  { value: "englishHorn", label: "Corno inglés", soundfont: "english_horn", fallback: "voice", sustain: true },
+  { value: "clarinet", label: "Clarinete", soundfont: "clarinet", fallback: "voice", sustain: true },
+  { value: "bassoon", label: "Fagot", soundfont: "bassoon", fallback: "voice", sustain: true },
+  { value: "sopranoSax", label: "Sax soprano", soundfont: "soprano_sax", fallback: "voice", sustain: true },
+  { value: "altoSax", label: "Sax alto", soundfont: "alto_sax", fallback: "voice", sustain: true },
+  { value: "tenorSax", label: "Sax tenor", soundfont: "tenor_sax", fallback: "voice", sustain: true },
+  { value: "baritoneSax", label: "Sax barítono", soundfont: "baritone_sax", fallback: "voice", sustain: true },
+
+  // Metales
+  { value: "trumpet", label: "Trompeta", soundfont: "trumpet", fallback: "organ", sustain: true },
+  { value: "trombone", label: "Trombón", soundfont: "trombone", fallback: "organ", sustain: true },
+  { value: "tuba", label: "Tuba", soundfont: "tuba", fallback: "organ", sustain: true },
+  { value: "frenchHorn", label: "Corno francés", soundfont: "french_horn", fallback: "organ", sustain: true },
+  { value: "brassSection", label: "Sección de metales", soundfont: "brass_section", fallback: "organ", sustain: true },
+  { value: "mutedTrumpet", label: "Trompeta con sordina", soundfont: "muted_trumpet", fallback: "organ", sustain: true },
+
+  // Percusión afinada
+  { value: "timpani", label: "Timbales sinfónicos", soundfont: "timpani", fallback: "mallet", sustain: false },
+  { value: "glockenspiel", label: "Glockenspiel", soundfont: "glockenspiel", fallback: "mallet", sustain: false },
+  { value: "xylophone", label: "Xilófono", soundfont: "xylophone", fallback: "mallet", sustain: false },
   { value: "marimba", label: "Marimba", soundfont: "marimba", fallback: "mallet", sustain: false },
   { value: "vibraphone", label: "Vibráfono", soundfont: "vibraphone", fallback: "mallet", sustain: false },
-  { value: "flute", label: "Flauta", soundfont: "flute", fallback: "voice", sustain: true },
+  { value: "tubularBells", label: "Campanas tubulares", soundfont: "tubular_bells", fallback: "mallet", sustain: true },
+
+  // Guitarras y bajos populares
+  { value: "nylonGuitar", label: "Guitarra de nylon", soundfont: "acoustic_guitar_nylon", fallback: "piano", sustain: false },
+  { value: "steelGuitar", label: "Guitarra acústica", soundfont: "acoustic_guitar_steel", fallback: "piano", sustain: false },
+  { value: "jazzGuitar", label: "Guitarra jazz", soundfont: "electric_guitar_jazz", fallback: "piano", sustain: false },
+  { value: "cleanGuitar", label: "Guitarra eléctrica clean", soundfont: "electric_guitar_clean", fallback: "piano", sustain: false },
+  { value: "mutedGuitar", label: "Guitarra eléctrica muted", soundfont: "electric_guitar_muted", fallback: "piano", sustain: false },
+  { value: "overdrivenGuitar", label: "Guitarra overdrive", soundfont: "overdriven_guitar", fallback: "piano", sustain: false },
+  { value: "distortionGuitar", label: "Guitarra distorsionada", soundfont: "distortion_guitar", fallback: "piano", sustain: false },
+  { value: "acousticBass", label: "Bajo acústico", soundfont: "acoustic_bass", fallback: "bass", sustain: false },
+  { value: "fingerBass", label: "Bajo eléctrico finger", soundfont: "electric_bass_finger", fallback: "bass", sustain: false },
+  { value: "pickBass", label: "Bajo eléctrico pick", soundfont: "electric_bass_pick", fallback: "bass", sustain: false },
+  { value: "fretlessBass", label: "Bajo fretless", soundfont: "fretless_bass", fallback: "bass", sustain: false },
+
+  // Otros colores populares / sintéticos
+  { value: "panFlute", label: "Flauta de pan", soundfont: "pan_flute", fallback: "voice", sustain: true },
+  { value: "ocarina", label: "Ocarina", soundfont: "ocarina", fallback: "voice", sustain: true },
+  { value: "leadSaw", label: "Synth lead saw", soundfont: "lead_2_sawtooth", fallback: "organ", sustain: true },
+  { value: "warmPad", label: "Pad cálido", soundfont: "pad_2_warm", fallback: "strings", sustain: true },
 ];
 
 const PIANO_KEYS = [
@@ -2269,6 +2331,17 @@ export default function IntervalTrainerPage() {
       routeOscillator({ type: "sine", level: 0.75 });
       routeOscillator({ type: "triangle", multiplier: 2.01, level: 0.2 });
       routeOscillator({ type: "sine", multiplier: 3.02, level: 0.08 });
+    } else if (fallbackType === "bass") {
+      attack = 0.018;
+      release = Math.max(0.14, duration * 0.4);
+      peak = Math.min(1.6, 0.2 * volumeNorm);
+      const lowPass = ctx.createBiquadFilter();
+      lowPass.type = "lowpass";
+      lowPass.frequency.value = 900;
+      lowPass.connect(masterGain);
+      filters.push(lowPass);
+      routeOscillator({ type: "triangle", level: 0.85, targetNode: lowPass });
+      routeOscillator({ type: "sine", multiplier: 2, level: 0.14, targetNode: lowPass });
     } else {
       attack = 0.012;
       release = Math.max(0.12, duration * 0.36);
