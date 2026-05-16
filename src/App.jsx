@@ -129,14 +129,14 @@ const PITCH_SMOOTH_ALPHA = 0.35;
 
 const CLEFS = [
   { key: "treble", label: "Clave de Sol", symbol: "𝄞", tag: "", vex: "treble", minMidi: 60, maxMidi: 88, centerMinMidi: 65, centerMaxMidi: 79, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
-  { key: "treble8va", label: "Clave de Sol 8va alta", symbol: "𝄞", tag: "8va", vex: "treble", displayOctaveShift: -1, minMidi: 72, maxMidi: 100, centerMinMidi: 77, centerMaxMidi: 91, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
-  { key: "treble15ma", label: "Clave de Sol 15ma alta", symbol: "𝄞", tag: "15ma", vex: "treble", displayOctaveShift: -2, minMidi: 84, maxMidi: 108, centerMinMidi: 84, centerMaxMidi: 100, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
+  { key: "treble8va", label: "Clave de Sol 8va alta", symbol: "𝄞", tag: "8va", clefAnnotation: "8va", vex: "treble", displayOctaveShift: -1, minMidi: 72, maxMidi: 100, centerMinMidi: 77, centerMaxMidi: 91, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
+  { key: "treble15ma", label: "Clave de Sol 15ma alta", symbol: "𝄞", tag: "15ma", clefAnnotation: "15ma", vex: "treble", displayOctaveShift: -2, minMidi: 84, maxMidi: 108, centerMinMidi: 84, centerMaxMidi: 100, staffRefLetter: "E", staffRefOctave: 4, staffRefY: 100 },
   { key: "soprano", label: "Clave de Do en I", symbol: "𝄡", tag: "I", vex: "soprano", minMidi: 57, maxMidi: 81, centerMinMidi: 62, centerMaxMidi: 74, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 100 },
   { key: "mezzo", label: "Clave de Do en II", symbol: "𝄡", tag: "II", vex: "mezzo-soprano", minMidi: 55, maxMidi: 79, centerMinMidi: 60, centerMaxMidi: 72, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 86 },
   { key: "alto", label: "Clave de Do en III", symbol: "𝄡", tag: "III", vex: "alto", minMidi: 53, maxMidi: 77, centerMinMidi: 58, centerMaxMidi: 70, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 72 },
   { key: "tenor", label: "Clave de Do en IV", symbol: "𝄡", tag: "IV", vex: "tenor", minMidi: 48, maxMidi: 72, centerMinMidi: 53, centerMaxMidi: 65, staffRefLetter: "C", staffRefOctave: 4, staffRefY: 58 },
   { key: "bass", label: "Clave de Fa", symbol: "𝄢", tag: "", vex: "bass", minMidi: 40, maxMidi: 67, centerMinMidi: 45, centerMaxMidi: 58, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
-  { key: "bass8vb", label: "Clave de Fa 8va baja", symbol: "𝄢", tag: "8vb", vex: "bass", displayOctaveShift: 1, minMidi: 28, maxMidi: 55, centerMinMidi: 33, centerMaxMidi: 46, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
+  { key: "bass8vb", label: "Clave de Fa 8va baja", symbol: "𝄢", tag: "8vb", clefAnnotation: "8vb", vex: "bass", displayOctaveShift: 1, minMidi: 28, maxMidi: 55, centerMinMidi: 33, centerMaxMidi: 46, staffRefLetter: "G", staffRefOctave: 2, staffRefY: 100 },
 ];
 
 const INTERVAL_DEFINITIONS = [
@@ -941,24 +941,20 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         const availableWidth = Math.max(300, scrollRef.current?.clientWidth ?? 650);
         const compact = availableWidth < 560;
         const noteCount = Math.max(1, entries.length);
-        const sidePadding = compact ? 118 : 142;
-        let noteSpacing;
-        let width;
-        if (noteCount <= 2) {
-          noteSpacing = compact ? 82 : 128;
-          width = Math.min(availableWidth, compact ? 340 : 520);
-        } else if (noteCount <= 4) {
-          noteSpacing = compact ? 64 : 100;
-          width = Math.min(availableWidth, sidePadding + noteCount * noteSpacing);
-        } else {
-          const fitSpacing = Math.floor((availableWidth - sidePadding) / noteCount);
-          noteSpacing = clamp(fitSpacing, compact ? 34 : 42, compact ? 54 : 78);
-          const naturalWidth = sidePadding + noteCount * noteSpacing;
-          width = compact
-            ? Math.max(availableWidth, naturalWidth)
-            : Math.min(availableWidth, Math.max(naturalWidth, availableWidth * 0.88));
-        }
-        width = Math.max(compact ? 320 : 420, Math.round(width));
+        const clefReserve = compact ? 76 : 92;
+        const finalReserve = compact ? 34 : 42;
+        const noteSpacing = noteCount <= 2
+          ? (compact ? 68 : 92)
+          : noteCount <= 4
+            ? (compact ? 58 : 80)
+            : clamp(Math.floor((availableWidth - clefReserve - finalReserve) / Math.max(1, noteCount)), compact ? 34 : 42, compact ? 54 : 70);
+        const naturalWidth = clefReserve + finalReserve + Math.max(1, noteCount) * noteSpacing;
+        let width = noteCount <= 2
+          ? Math.min(availableWidth, Math.max(compact ? 260 : 330, naturalWidth))
+          : compact
+            ? Math.max(Math.min(availableWidth, 360), naturalWidth)
+            : Math.min(availableWidth, Math.max(naturalWidth, Math.min(availableWidth, 520)));
+        width = Math.max(compact ? 260 : 330, Math.round(width));
         const height = compact ? 158 : 168;
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
@@ -967,7 +963,15 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         if (VF.Barline?.type?.END && typeof stave.setEndBarType === "function") {
           stave.setEndBarType(VF.Barline.type.END);
         }
-        stave.addClef(clef.vex);
+        if (clef.clefAnnotation) {
+          try {
+            stave.addClef(clef.vex, "default", clef.clefAnnotation);
+          } catch {
+            stave.addClef(clef.vex);
+          }
+        } else {
+          stave.addClef(clef.vex);
+        }
         stave.setContext(context).draw();
 
         const accidentalState = new Map();
@@ -1015,27 +1019,8 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         if (typeof voice.setMode === "function" && Voice.Mode) voice.setMode(Voice.Mode.SOFT);
         if (typeof voice.setStrict === "function") voice.setStrict(false);
         voice.addTickables(vexNotes);
-        new Formatter().joinVoices([voice]).format([voice], Math.max(190, width - (compact ? 92 : 118)));
-
-        const getNoteCenterX = (vexNote, fallbackX) => {
-          const beginX = typeof vexNote.getNoteHeadBeginX === "function" ? vexNote.getNoteHeadBeginX() : null;
-          const endX = typeof vexNote.getNoteHeadEndX === "function" ? vexNote.getNoteHeadEndX() : null;
-          if (typeof beginX === "number" && typeof endX === "number") return (beginX + endX) / 2;
-          if (typeof vexNote.getAbsoluteX === "function") return vexNote.getAbsoluteX();
-          return fallbackX;
-        };
-
-        const noteAreaStart = (compact ? 8 : 14) + (compact ? 70 : 88);
-        const noteAreaEnd = (compact ? 8 : 14) + (width - (compact ? 16 : 28)) - (compact ? 34 : 46);
-        const spacingGap = noteCount > 0 ? (noteAreaEnd - noteAreaStart) / (noteCount + 1) : 0;
-        vexNotes.forEach((vexNote, index) => {
-          if (typeof vexNote.setXShift !== "function") return;
-          const currentX = getNoteCenterX(vexNote, 88 + index * 68);
-          const desiredX = noteCount === 1
-            ? (noteAreaStart + noteAreaEnd) / 2
-            : noteAreaStart + spacingGap * (index + 1);
-          vexNote.setXShift((vexNote.getXShift?.() ?? 0) + desiredX - currentX);
-        });
+        const formatWidth = Math.max(150, width - clefReserve - finalReserve);
+        new Formatter().joinVoices([voice]).format([voice], formatWidth);
 
         voice.draw(context, stave);
 
@@ -1086,23 +1071,12 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
             thick.setAttribute("y1", String(topY));
             thick.setAttribute("y2", String(bottomY));
             thick.setAttribute("stroke", "#111");
-            thick.setAttribute("stroke-width", "5");
+            thick.setAttribute("stroke-width", "6");
             thick.setAttribute("stroke-linecap", "butt");
             svg.appendChild(thick);
           };
 
           drawFinalDoubleBar();
-
-          if (clef.tag) {
-            const tag = document.createElementNS(ns, "text");
-            tag.setAttribute("x", compact ? "40" : "50");
-            tag.setAttribute("y", compact ? "33" : "36");
-            tag.setAttribute("font-size", compact ? "11" : "13");
-            tag.setAttribute("font-weight", "700");
-            tag.setAttribute("fill", "#52525b");
-            tag.textContent = clef.tag;
-            svg.appendChild(tag);
-          }
 
           entries.forEach((entry, index) => {
             const vexNote = vexNotes[index];
