@@ -981,16 +981,23 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         });
 
         const vexNotes = noteGroups.map((group) => {
+          const allHidden = group.every((item) => item.visible === false);
+          const safeHiddenNote = makeNote(clef.staffRefLetter, clef.staffRefOctave, 0);
+          const renderGroup = allHidden
+            ? [{ note: safeHiddenNote, role: "placeholder", status: "hidden", visible: false }]
+            : group;
+
           const staveNote = new StaveNote({
             clef: clef.vex,
-            keys: group.map(({ note }) => noteToVexKey(note, clef)),
+            keys: renderGroup.map(({ note }) => noteToVexKey(note, clef)),
             duration: "w",
           });
-          const allHidden = group.every((item) => item.visible === false);
+
           if (allHidden && typeof staveNote.setStyle === "function") {
             staveNote.setStyle({ fillStyle: "rgba(0,0,0,0)", strokeStyle: "rgba(0,0,0,0)" });
           }
-          group.forEach(({ note, visible }, noteIndex) => {
+
+          renderGroup.forEach(({ note, visible }, noteIndex) => {
             if (visible === false) return;
             const stateKey = `${note.letter}${note.octave + (clef.displayOctaveShift ?? 0)}`;
             const previousAccidental = accidentalState.get(stateKey) ?? 0;
@@ -1009,6 +1016,27 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         if (typeof voice.setStrict === "function") voice.setStrict(false);
         voice.addTickables(vexNotes);
         new Formatter().joinVoices([voice]).format([voice], Math.max(190, width - (compact ? 92 : 118)));
+
+        const getNoteCenterX = (vexNote, fallbackX) => {
+          const beginX = typeof vexNote.getNoteHeadBeginX === "function" ? vexNote.getNoteHeadBeginX() : null;
+          const endX = typeof vexNote.getNoteHeadEndX === "function" ? vexNote.getNoteHeadEndX() : null;
+          if (typeof beginX === "number" && typeof endX === "number") return (beginX + endX) / 2;
+          if (typeof vexNote.getAbsoluteX === "function") return vexNote.getAbsoluteX();
+          return fallbackX;
+        };
+
+        const noteAreaStart = (compact ? 8 : 14) + (compact ? 70 : 88);
+        const noteAreaEnd = (compact ? 8 : 14) + (width - (compact ? 16 : 28)) - (compact ? 34 : 46);
+        const spacingGap = noteCount > 0 ? (noteAreaEnd - noteAreaStart) / (noteCount + 1) : 0;
+        vexNotes.forEach((vexNote, index) => {
+          if (typeof vexNote.setXShift !== "function") return;
+          const currentX = getNoteCenterX(vexNote, 88 + index * 68);
+          const desiredX = noteCount === 1
+            ? (noteAreaStart + noteAreaEnd) / 2
+            : noteAreaStart + spacingGap * (index + 1);
+          vexNote.setXShift((vexNote.getXShift?.() ?? 0) + desiredX - currentX);
+        });
+
         voice.draw(context, stave);
 
         const svg = containerRef.current.querySelector("svg");
@@ -1017,6 +1045,53 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
           svg.setAttribute("style", "display:block; max-width:none;");
           svg.setAttribute("width", String(width));
           svg.setAttribute("height", String(height));
+
+          const drawFinalDoubleBar = () => {
+            const finalX = (compact ? 8 : 14) + (width - (compact ? 16 : 28));
+            const topY = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : (compact ? 30 : 34);
+            const bottomY = typeof stave.getYForLine === "function" ? stave.getYForLine(4) : topY + 40;
+            const cover = document.createElementNS(ns, "rect");
+            cover.setAttribute("x", String(finalX - 14));
+            cover.setAttribute("y", String(topY - 4));
+            cover.setAttribute("width", "18");
+            cover.setAttribute("height", String(bottomY - topY + 8));
+            cover.setAttribute("fill", "white");
+            cover.setAttribute("stroke", "none");
+            svg.appendChild(cover);
+
+            for (let line = 0; line <= 4; line += 1) {
+              const y = typeof stave.getYForLine === "function" ? stave.getYForLine(line) : topY + line * 10;
+              const staffLine = document.createElementNS(ns, "line");
+              staffLine.setAttribute("x1", String(finalX - 14));
+              staffLine.setAttribute("x2", String(finalX));
+              staffLine.setAttribute("y1", String(y));
+              staffLine.setAttribute("y2", String(y));
+              staffLine.setAttribute("stroke", "#8f8f8f");
+              staffLine.setAttribute("stroke-width", "1");
+              svg.appendChild(staffLine);
+            }
+
+            const thin = document.createElementNS(ns, "line");
+            thin.setAttribute("x1", String(finalX - 7));
+            thin.setAttribute("x2", String(finalX - 7));
+            thin.setAttribute("y1", String(topY));
+            thin.setAttribute("y2", String(bottomY));
+            thin.setAttribute("stroke", "#111");
+            thin.setAttribute("stroke-width", "1.6");
+            svg.appendChild(thin);
+
+            const thick = document.createElementNS(ns, "line");
+            thick.setAttribute("x1", String(finalX - 1.5));
+            thick.setAttribute("x2", String(finalX - 1.5));
+            thick.setAttribute("y1", String(topY));
+            thick.setAttribute("y2", String(bottomY));
+            thick.setAttribute("stroke", "#111");
+            thick.setAttribute("stroke-width", "5");
+            thick.setAttribute("stroke-linecap", "butt");
+            svg.appendChild(thick);
+          };
+
+          drawFinalDoubleBar();
 
           if (clef.tag) {
             const tag = document.createElementNS(ns, "text");
