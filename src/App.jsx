@@ -167,6 +167,7 @@ const INTERVAL_DEFINITIONS = [
 ];
 
 const MODEL_PATTERNS = [
+  // Nivel I · cuartas, quintas y octavas
   { id: "l1-4j4j", label: "4J + 4J", steps: [{ intervalKey: "P4" }, { intervalKey: "P4" }] },
   { id: "l1-5j5j", label: "5J + 5J", steps: [{ intervalKey: "P5" }, { intervalKey: "P5" }] },
   { id: "l1-5up4down", label: "5J↗ + 4J↘", steps: [{ intervalKey: "P5", direction: 1 }, { intervalKey: "P4", direction: -1 }] },
@@ -175,38 +176,111 @@ const MODEL_PATTERNS = [
   { id: "l1-4down5up", label: "4J↘ + 5J↗", steps: [{ intervalKey: "P4", direction: -1 }, { intervalKey: "P5", direction: 1 }] },
   { id: "l1-4j4j4j", label: "4J + 4J + 4J", steps: [{ intervalKey: "P4" }, { intervalKey: "P4" }, { intervalKey: "P4" }] },
   { id: "l1-5j5j5j", label: "5J + 5J + 5J", steps: [{ intervalKey: "P5" }, { intervalKey: "P5" }, { intervalKey: "P5" }] },
-  { id: "l2-2M2M-up", label: "2M↗ + 2M↗", steps: [{ intervalKey: "M2", direction: 1 }, { intervalKey: "M2", direction: 1 }] },
-  { id: "l2-2m2m-up", label: "2m↗ + 2m↗", steps: [{ intervalKey: "m2", direction: 1 }, { intervalKey: "m2", direction: 1 }] },
-  { id: "l2-2M2M-down", label: "2M↘ + 2M↘", steps: [{ intervalKey: "M2", direction: -1 }, { intervalKey: "M2", direction: -1 }] },
-  { id: "l2-2m2m-down", label: "2m↘ + 2m↘", steps: [{ intervalKey: "m2", direction: -1 }, { intervalKey: "m2", direction: -1 }] },
-  { id: "l2-chromatic", label: "Escala cromática", steps: [{ intervalKey: "m2" }, { intervalKey: "m2" }, { intervalKey: "m2" }, { intervalKey: "m2" }] },
-  { id: "l2-whole-tone", label: "Escala de tonos enteros", steps: [{ intervalKey: "M2" }, { intervalKey: "M2" }, { intervalKey: "M2" }, { intervalKey: "M2" }] },
-  { id: "l2-4j-2M", label: "4J + 2M", steps: [{ intervalKey: "P4" }, { intervalKey: "M2" }] },
-  { id: "l2-4j-2m", label: "4J + 2m", steps: [{ intervalKey: "P4" }, { intervalKey: "m2" }] },
-  { id: "l2-5j-2M", label: "5J + 2M", steps: [{ intervalKey: "P5" }, { intervalKey: "M2" }] },
-  { id: "l2-5j-2m", label: "5J + 2m", steps: [{ intervalKey: "P5" }, { intervalKey: "m2" }] },
-  { id: "l3-3M3M", label: "3M + 3M", steps: [{ intervalKey: "M3" }, { intervalKey: "M3" }] },
-  { id: "l3-3m3m", label: "3m + 3m", steps: [{ intervalKey: "m3" }, { intervalKey: "m3" }] },
+
+  // Nivel II · segundas mayores y menores
+  { id: "l2-2Mup2Mup", label: "2M↗ + 2M↗", steps: [{ intervalKey: "M2", direction: 1 }, { intervalKey: "M2", direction: 1 }] },
+  { id: "l2-2Mup2mup", label: "2M↗ + 2m↗", steps: [{ intervalKey: "M2", direction: 1 }, { intervalKey: "m2", direction: 1 }] },
+  { id: "l2-2mup2Mup", label: "2m↗ + 2M↗", steps: [{ intervalKey: "m2", direction: 1 }, { intervalKey: "M2", direction: 1 }] },
+  { id: "l2-2mup2mup", label: "2m↗ + 2m↗", steps: [{ intervalKey: "m2", direction: 1 }, { intervalKey: "m2", direction: 1 }] },
+  { id: "l2-2Mup2mdown", label: "2M↗ + 2m↘", steps: [{ intervalKey: "M2", direction: 1 }, { intervalKey: "m2", direction: -1 }] },
+  { id: "l2-2mup2Mdown", label: "2m↗ + 2M↘", steps: [{ intervalKey: "m2", direction: 1 }, { intervalKey: "M2", direction: -1 }] },
+  { id: "l2-2Mdown2Mdown", label: "2M↘ + 2M↘", steps: [{ intervalKey: "M2", direction: -1 }, { intervalKey: "M2", direction: -1 }] },
+  { id: "l2-2Mdown2mdown", label: "2M↘ + 2m↘", steps: [{ intervalKey: "M2", direction: -1 }, { intervalKey: "m2", direction: -1 }] },
+  { id: "l2-2mdown2Mdown", label: "2m↘ + 2M↘", steps: [{ intervalKey: "m2", direction: -1 }, { intervalKey: "M2", direction: -1 }] },
+  { id: "l2-2mdown2mdown", label: "2m↘ + 2m↘", steps: [{ intervalKey: "m2", direction: -1 }, { intervalKey: "m2", direction: -1 }] },
+  { id: "l2-2Mdown2mup", label: "2M↘ + 2m↗", steps: [{ intervalKey: "M2", direction: -1 }, { intervalKey: "m2", direction: 1 }] },
+  { id: "l2-2mdown2Mup", label: "2m↘ + 2M↗", steps: [{ intervalKey: "m2", direction: -1 }, { intervalKey: "M2", direction: 1 }] },
+  { id: "l2-chromatic-up", label: "Escala cromática ↗", steps: [{ intervalKey: "m2", direction: 1 }, { intervalKey: "m2", direction: 1 }, { intervalKey: "m2", direction: 1 }] },
+  { id: "l2-chromatic-down", label: "Escala cromática ↘", steps: [{ intervalKey: "m2", direction: -1 }, { intervalKey: "m2", direction: -1 }, { intervalKey: "m2", direction: -1 }] },
+  { id: "l2-whole-tone-up", label: "Escala de tonos enteros ↗", steps: [{ intervalKey: "M2", direction: 1 }, { intervalKey: "M2", direction: 1 }, { intervalKey: "M2", direction: 1 }] },
+  { id: "l2-whole-tone-down", label: "Escala de tonos enteros ↘", steps: [{ intervalKey: "M2", direction: -1 }, { intervalKey: "M2", direction: -1 }, { intervalKey: "M2", direction: -1 }] },
+  { id: "l2-4j2M", label: "4J + 2M", steps: [{ intervalKey: "P4" }, { intervalKey: "M2" }] },
+  { id: "l2-4j2m", label: "4J + 2m", steps: [{ intervalKey: "P4" }, { intervalKey: "m2" }] },
+  { id: "l2-5j2M", label: "5J + 2M", steps: [{ intervalKey: "P5" }, { intervalKey: "M2" }] },
+  { id: "l2-5j2m", label: "5J + 2m", steps: [{ intervalKey: "P5" }, { intervalKey: "m2" }] },
+  { id: "l2-4j2m4j", label: "4J + 2m + 4J", steps: [{ intervalKey: "P4" }, { intervalKey: "m2" }, { intervalKey: "P4" }] },
+  { id: "l2-5j2m5j", label: "5J + 2m + 5J", steps: [{ intervalKey: "P5" }, { intervalKey: "m2" }, { intervalKey: "P5" }] },
+  { id: "l2-4j2M4j", label: "4J + 2M + 4J", steps: [{ intervalKey: "P4" }, { intervalKey: "M2" }, { intervalKey: "P4" }] },
+  { id: "l2-5j2M5j", label: "5J + 2M + 5J", steps: [{ intervalKey: "P5" }, { intervalKey: "M2" }, { intervalKey: "P5" }] },
+  { id: "l2-4j2M5j", label: "4J + 2M + 5J", steps: [{ intervalKey: "P4" }, { intervalKey: "M2" }, { intervalKey: "P5" }] },
+  { id: "l2-4j2m5j", label: "4J + 2m + 5J", steps: [{ intervalKey: "P4" }, { intervalKey: "m2" }, { intervalKey: "P5" }] },
+
+  // Nivel III · terceras mayores y menores
+  { id: "l3-3M3M", label: "3M + 3M · aumentado", steps: [{ intervalKey: "M3" }, { intervalKey: "M3" }] },
+  { id: "l3-3m3m", label: "3m + 3m · disminuido", steps: [{ intervalKey: "m3" }, { intervalKey: "m3" }] },
+  { id: "l3-3Mup3mdown", label: "3M↗ + 3m↘", steps: [{ intervalKey: "M3", direction: 1 }, { intervalKey: "m3", direction: -1 }] },
+  { id: "l3-3Mdown3mup", label: "3M↘ + 3m↗", steps: [{ intervalKey: "M3", direction: -1 }, { intervalKey: "m3", direction: 1 }] },
+  { id: "l3-3mup3Mdown", label: "3m↗ + 3M↘", steps: [{ intervalKey: "m3", direction: 1 }, { intervalKey: "M3", direction: -1 }] },
+  { id: "l3-3mdown3Mup", label: "3m↘ + 3M↗", steps: [{ intervalKey: "m3", direction: -1 }, { intervalKey: "M3", direction: 1 }] },
   { id: "l3-aum4j", label: "aum. + 4J", steps: [{ intervalKey: "M3" }, { intervalKey: "M3" }, { intervalKey: "P4" }] },
+  { id: "l3-aum5j", label: "aum. + 5J", steps: [{ intervalKey: "M3" }, { intervalKey: "M3" }, { intervalKey: "P5" }] },
+  { id: "l3-dis4j", label: "dis. + 4J", steps: [{ intervalKey: "m3" }, { intervalKey: "m3" }, { intervalKey: "P4" }] },
   { id: "l3-dis5j", label: "dis. + 5J", steps: [{ intervalKey: "m3" }, { intervalKey: "m3" }, { intervalKey: "P5" }] },
-  { id: "l4-tt4j", label: "TT + 4J", steps: [{ intervalKey: "TT" }, { intervalKey: "P4" }] },
-  { id: "l4-tt5j", label: "TT + 5J", steps: [{ intervalKey: "TT" }, { intervalKey: "P5" }] },
+  { id: "l3-3m4j3m", label: "3m + 4J + 3m", steps: [{ intervalKey: "m3" }, { intervalKey: "P4" }, { intervalKey: "m3" }] },
+  { id: "l3-3m5j3m", label: "3m + 5J + 3m", steps: [{ intervalKey: "m3" }, { intervalKey: "P5" }, { intervalKey: "m3" }] },
+  { id: "l3-3M4j3M", label: "3M + 4J + 3M", steps: [{ intervalKey: "M3" }, { intervalKey: "P4" }, { intervalKey: "M3" }] },
+  { id: "l3-3M5j3M", label: "3M + 5J + 3M", steps: [{ intervalKey: "M3" }, { intervalKey: "P5" }, { intervalKey: "M3" }] },
+
+  // Nivel IV · tritono
   { id: "l4-tt2mtt", label: "TT + 2m + TT", steps: [{ intervalKey: "TT" }, { intervalKey: "m2" }, { intervalKey: "TT" }] },
   { id: "l4-tt2Mtt", label: "TT + 2M + TT", steps: [{ intervalKey: "TT" }, { intervalKey: "M2" }, { intervalKey: "TT" }] },
+  { id: "l4-tt4j", label: "TT + 4J", steps: [{ intervalKey: "TT" }, { intervalKey: "P4" }] },
+  { id: "l4-tt5j", label: "TT + 5J", steps: [{ intervalKey: "TT" }, { intervalKey: "P5" }] },
   { id: "l4-ttup5down", label: "TT↗ + 5J↘", steps: [{ intervalKey: "TT", direction: 1 }, { intervalKey: "P5", direction: -1 }] },
+  { id: "l4-ttdown5up", label: "TT↘ + 5J↗", steps: [{ intervalKey: "TT", direction: -1 }, { intervalKey: "P5", direction: 1 }] },
+  { id: "l4-ttup4down", label: "TT↗ + 4J↘", steps: [{ intervalKey: "TT", direction: 1 }, { intervalKey: "P4", direction: -1 }] },
   { id: "l4-ttdown4up", label: "TT↘ + 4J↗", steps: [{ intervalKey: "TT", direction: -1 }, { intervalKey: "P4", direction: 1 }] },
-  { id: "l5-6m6m", label: "6m + 6m", steps: [{ intervalKey: "m6" }, { intervalKey: "m6" }] },
-  { id: "l5-6M6M", label: "6M + 6M", steps: [{ intervalKey: "M6" }, { intervalKey: "M6" }] },
+  { id: "l4-5upTTdown", label: "5J↗ + TT↘", steps: [{ intervalKey: "P5", direction: 1 }, { intervalKey: "TT", direction: -1 }] },
+  { id: "l4-5downTTup", label: "5J↘ + TT↗", steps: [{ intervalKey: "P5", direction: -1 }, { intervalKey: "TT", direction: 1 }] },
+  { id: "l4-4upTTdown", label: "4J↗ + TT↘", steps: [{ intervalKey: "P4", direction: 1 }, { intervalKey: "TT", direction: -1 }] },
+  { id: "l4-4downTTup", label: "4J↘ + TT↗", steps: [{ intervalKey: "P4", direction: -1 }, { intervalKey: "TT", direction: 1 }] },
+
+  // Nivel V · sextas mayores y menores
+  { id: "l5-6m6m", label: "6m + 6m · aumentado", steps: [{ intervalKey: "m6" }, { intervalKey: "m6" }] },
+  { id: "l5-6M6M", label: "6M + 6M · disminuido", steps: [{ intervalKey: "M6" }, { intervalKey: "M6" }] },
+  { id: "l5-6Mup6mdown", label: "6M↗ + 6m↘", steps: [{ intervalKey: "M6", direction: 1 }, { intervalKey: "m6", direction: -1 }] },
+  { id: "l5-6Mdown6mup", label: "6M↘ + 6m↗", steps: [{ intervalKey: "M6", direction: -1 }, { intervalKey: "m6", direction: 1 }] },
+  { id: "l5-6mup6Mdown", label: "6m↗ + 6M↘", steps: [{ intervalKey: "m6", direction: 1 }, { intervalKey: "M6", direction: -1 }] },
+  { id: "l5-6mdown6Mup", label: "6m↘ + 6M↗", steps: [{ intervalKey: "m6", direction: -1 }, { intervalKey: "M6", direction: 1 }] },
   { id: "l5-6m3m", label: "6m + 3m", steps: [{ intervalKey: "m6" }, { intervalKey: "m3" }] },
   { id: "l5-6M3M", label: "6M + 3M", steps: [{ intervalKey: "M6" }, { intervalKey: "M3" }] },
-  { id: "l6-7m", label: "7m", steps: [{ intervalKey: "m7" }] },
-  { id: "l6-7M", label: "7M", steps: [{ intervalKey: "M7" }] },
+  { id: "l5-6m2m", label: "6m + 2m", steps: [{ intervalKey: "m6" }, { intervalKey: "m2" }] },
+  { id: "l5-6m2M", label: "6m + 2M", steps: [{ intervalKey: "m6" }, { intervalKey: "M2" }] },
+  { id: "l5-6m4j", label: "6m + 4J", steps: [{ intervalKey: "m6" }, { intervalKey: "P4" }] },
+  { id: "l5-6mTT", label: "6m + TT", steps: [{ intervalKey: "m6" }, { intervalKey: "TT" }] },
+  { id: "l5-6M2m", label: "6M + 2m", steps: [{ intervalKey: "M6" }, { intervalKey: "m2" }] },
+  { id: "l5-6M2M", label: "6M + 2M", steps: [{ intervalKey: "M6" }, { intervalKey: "M2" }] },
+  { id: "l5-6M4j", label: "6M + 4J", steps: [{ intervalKey: "M6" }, { intervalKey: "P4" }] },
+
+  // Nivel VI · séptimas mayores y menores
+  { id: "l6-7m7m", label: "7m + 7m", steps: [{ intervalKey: "m7" }, { intervalKey: "m7" }] },
+  { id: "l6-7M7M", label: "7M + 7M", steps: [{ intervalKey: "M7" }, { intervalKey: "M7" }] },
+  { id: "l6-7mup2Mdown", label: "7m↗ + 2M↘", steps: [{ intervalKey: "m7", direction: 1 }, { intervalKey: "M2", direction: -1 }] },
+  { id: "l6-2Mdown7mup", label: "2M↘ + 7m↗", steps: [{ intervalKey: "M2", direction: -1 }, { intervalKey: "m7", direction: 1 }] },
+  { id: "l6-7mup2mdown", label: "7m↗ + 2m↘", steps: [{ intervalKey: "m7", direction: 1 }, { intervalKey: "m2", direction: -1 }] },
+  { id: "l6-2mdown7mup", label: "2m↘ + 7m↗", steps: [{ intervalKey: "m2", direction: -1 }, { intervalKey: "m7", direction: 1 }] },
+  { id: "l6-7Mup2Mdown", label: "7M↗ + 2M↘", steps: [{ intervalKey: "M7", direction: 1 }, { intervalKey: "M2", direction: -1 }] },
+  { id: "l6-7Mup2mdown", label: "7M↗ + 2m↘", steps: [{ intervalKey: "M7", direction: 1 }, { intervalKey: "m2", direction: -1 }] },
+  { id: "l6-2mdown7Mup", label: "2m↘ + 7M↗", steps: [{ intervalKey: "m2", direction: -1 }, { intervalKey: "M7", direction: 1 }] },
+  { id: "l6-7mdown2Mup", label: "7m↘ + 2M↗", steps: [{ intervalKey: "m7", direction: -1 }, { intervalKey: "M2", direction: 1 }] },
+  { id: "l6-2Mup7mdown", label: "2M↗ + 7m↘", steps: [{ intervalKey: "M2", direction: 1 }, { intervalKey: "m7", direction: -1 }] },
+  { id: "l6-7Mdown2Mup", label: "7M↘ + 2M↗", steps: [{ intervalKey: "M7", direction: -1 }, { intervalKey: "M2", direction: 1 }] },
+  { id: "l6-2mup7mdown", label: "2m↗ + 7m↘", steps: [{ intervalKey: "m2", direction: 1 }, { intervalKey: "m7", direction: -1 }] },
+  { id: "l6-7Mdown2mup", label: "7M↘ + 2m↗", steps: [{ intervalKey: "M7", direction: -1 }, { intervalKey: "m2", direction: 1 }] },
+  { id: "l6-2mup7Mdown", label: "2m↗ + 7M↘", steps: [{ intervalKey: "m2", direction: 1 }, { intervalKey: "M7", direction: -1 }] },
+  { id: "l6-7mup7Mdown", label: "7m↗ + 7M↘", steps: [{ intervalKey: "m7", direction: 1 }, { intervalKey: "M7", direction: -1 }] },
+  { id: "l6-7mdown7Mup", label: "7m↘ + 7M↗", steps: [{ intervalKey: "m7", direction: -1 }, { intervalKey: "M7", direction: 1 }] },
+  { id: "l6-7Mup7mdown", label: "7M↗ + 7m↘", steps: [{ intervalKey: "M7", direction: 1 }, { intervalKey: "m7", direction: -1 }] },
+  { id: "l6-7Mdown7mup", label: "7M↘ + 7m↗", steps: [{ intervalKey: "M7", direction: -1 }, { intervalKey: "m7", direction: 1 }] },
   { id: "l6-7m2m", label: "7m + 2m", steps: [{ intervalKey: "m7" }, { intervalKey: "m2" }] },
-  { id: "l6-7M2M", label: "7M + 2M", steps: [{ intervalKey: "M7" }, { intervalKey: "M2" }] },
+  { id: "l6-7m3m", label: "7m + 3m", steps: [{ intervalKey: "m7" }, { intervalKey: "m3" }] },
+  { id: "l6-7m3M", label: "7m + 3M", steps: [{ intervalKey: "m7" }, { intervalKey: "M3" }] },
   { id: "l6-7m4j", label: "7m + 4J", steps: [{ intervalKey: "m7" }, { intervalKey: "P4" }] },
+  { id: "l6-7M2M", label: "7M + 2M", steps: [{ intervalKey: "M7" }, { intervalKey: "M2" }] },
+  { id: "l6-7M3m", label: "7M + 3m", steps: [{ intervalKey: "M7" }, { intervalKey: "m3" }] },
+  { id: "l6-7M3M", label: "7M + 3M", steps: [{ intervalKey: "M7" }, { intervalKey: "M3" }] },
   { id: "l6-7M4j", label: "7M + 4J", steps: [{ intervalKey: "M7" }, { intervalKey: "P4" }] },
 ];
-
 
 const INSTRUMENTS = [
   { value: "voiceOohs", label: "Voz Oohs", soundfont: "voice_oohs", fallback: "voice", sustain: true },
@@ -542,21 +616,107 @@ function transitionMatchesModelStep(transition, modelStep) {
 function detectModelLabels(sequence, allowedIntervalKeys = []) {
   const transitions = getTransitionData(sequence, allowedIntervalKeys);
   const labels = [];
-  MODEL_PATTERNS.forEach((pattern) => {
-    if (pattern.steps.length > transitions.length) return;
-    for (let start = 0; start <= transitions.length - pattern.steps.length; start += 1) {
-      const slice = transitions.slice(start, start + pattern.steps.length);
-      if (slice.every((transition, index) => transitionMatchesModelStep(transition, pattern.steps[index]))) {
-        labels.push(pattern.label);
+  MODEL_PATTERNS
+    .filter((pattern) => pattern.steps.length >= 2)
+    .sort((a, b) => b.steps.length - a.steps.length)
+    .forEach((pattern) => {
+      if (pattern.steps.length > transitions.length) return;
+      for (let start = 0; start <= transitions.length - pattern.steps.length; start += 1) {
+        const slice = transitions.slice(start, start + pattern.steps.length);
+        if (slice.every((transition, index) => transitionMatchesModelStep(transition, pattern.steps[index]))) {
+          labels.push(pattern.label);
+          break;
+        }
+      }
+    });
+  return [...new Set(labels)].slice(0, 12);
+}
+
+function patternFitsIntervalSelection(pattern, intervalKeys) {
+  const allowed = new Set(sanitizeIntervalSelection(intervalKeys));
+  if (!pattern?.steps?.length || pattern.steps.length < 2) return false;
+  return pattern.steps.every((step) => allowed.has(step.intervalKey));
+}
+
+function patternFitsDirectionPlan(pattern, directionPlan) {
+  if (!directionPlan) return true;
+  return pattern.steps.every((step, index) => {
+    const forced = directionPlan[index];
+    if (typeof forced !== "number") return true;
+    return typeof step.direction !== "number" || step.direction === forced;
+  });
+}
+
+function buildMelodyFromModel(noteCount, selectedIntervalKeys, selectedClefKeys, directionMode = DEFAULT_DIRECTION_MODE) {
+  const safeCount = clamp(noteCount, MIN_NOTES, MAX_NOTES);
+  if (safeCount < 3) return null;
+  const intervals = sanitizeIntervalSelection(selectedIntervalKeys);
+  const clefKey = randomItem(sanitizeClefSelection(selectedClefKeys));
+  const { all, central } = getNotesForClef(clefKey);
+  const directionPlan = getDirectionPlan(safeCount, directionMode);
+  const usablePatterns = MODEL_PATTERNS
+    .filter((pattern) => pattern.steps.length <= safeCount - 1)
+    .filter((pattern) => patternFitsIntervalSelection(pattern, intervals))
+    .filter((pattern) => patternFitsDirectionPlan(pattern, directionPlan));
+
+  if (!usablePatterns.length) return null;
+
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const pattern = randomItem(usablePatterns);
+    let current = randomItem(central.length ? central : all);
+    const sequence = [current];
+    let failed = false;
+
+    for (let i = 0; i < pattern.steps.length; i += 1) {
+      const modelStep = pattern.steps[i];
+      const forcedDirection = directionPlan ? directionPlan[i] ?? null : null;
+      const direction = typeof modelStep.direction === "number" ? modelStep.direction : forcedDirection;
+      const candidates = getCandidates(current, [modelStep.intervalKey], clefKey, null, direction);
+      if (!candidates.length) {
+        failed = true;
         break;
       }
+      const filtered = candidates.filter((item) => sequence.length < 2 || item.note.id !== sequence[sequence.length - 2].id);
+      current = randomItem(filtered.length ? filtered : candidates).note;
+      sequence.push(current);
     }
-  });
-  return [...new Set(labels)].slice(0, 10);
+
+    if (failed) continue;
+
+    while (sequence.length < safeCount) {
+      const forcedDirection = directionPlan ? directionPlan[sequence.length - 1] ?? null : null;
+      const candidates = getCandidates(current, intervals, clefKey, null, forcedDirection);
+      if (!candidates.length) {
+        current = randomItem(all);
+      } else {
+        const filtered = candidates.filter((item) => sequence.length < 2 || item.note.id !== sequence[sequence.length - 2].id);
+        current = randomItem(filtered.length ? filtered : candidates).note;
+      }
+      sequence.push(current);
+    }
+
+    return {
+      id: `${Date.now()}-${Math.random()}`,
+      sequence,
+      clefKey,
+      mode: "intervals",
+      intervalKeys: intervals,
+      directionMode: sanitizeDirectionMode(directionMode, safeCount),
+      startNote: sequence[0]?.label ?? "—",
+      preferredModel: pattern.label,
+    };
+  }
+
+  return null;
 }
 function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys, directionMode = DEFAULT_DIRECTION_MODE) {
   const safeCount = clamp(noteCount, MIN_NOTES, MAX_NOTES);
   const intervals = sanitizeIntervalSelection(selectedIntervalKeys);
+  const modelBased = safeCount >= 3 && Math.random() < 0.68
+    ? buildMelodyFromModel(safeCount, intervals, selectedClefKeys, directionMode)
+    : null;
+  if (modelBased) return modelBased;
+
   const clefKey = randomItem(sanitizeClefSelection(selectedClefKeys));
   const { all, central } = getNotesForClef(clefKey);
   const directionPlan = getDirectionPlan(safeCount, directionMode);
@@ -2374,9 +2534,7 @@ export default function IntervalTrainerPage() {
                   <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Selecciona al menos un intervalo para generar.</p>
                 ) : useTwelveToneSeries && twelveToneUsableIntervals.length === 0 ? (
                   <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">La 8J no puede funcionar sola en serie dodecafónica porque repite la misma clase de altura.</p>
-                ) : (
-                  <p className="text-xs text-zinc-500">El generador favorece modelos sonoros reconocibles como 4J+4J, 5J+5J, TT+4J, 6M+3M y otras combinaciones base.</p>
-                )}
+                ) : null}
               </div>
 
               <div className="space-y-3">
@@ -2468,7 +2626,7 @@ export default function IntervalTrainerPage() {
                   ) : null}
 
                   <div className="rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
-                    <p className="text-sm font-medium text-zinc-500">Saltos entre notas consecutivas</p>
+                    <p className="text-sm font-medium text-zinc-500">{isHarmonicMode ? "Intervalos armónicos escuchados" : "Saltos entre notas consecutivas"}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {intervalLabels.map((item, index) => <Badge key={`${item}-${index}`}>{item}</Badge>)}
                     </div>
