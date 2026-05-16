@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Soundfont from "soundfont-player";
+import * as VF from "vexflow";
 
 
 function IconBase({ children, className = "h-4 w-4", viewBox = "0 0 24 24" }) {
@@ -100,8 +101,15 @@ const SOUNDFONT_GAIN_BOOST = 16.0;
 const DEFAULT_INSTRUMENT = "piano";
 const DEFAULT_INTERVAL_KEYS = ["P4", "P5", "P8"];
 const DEFAULT_CLEF_KEYS = ["treble"];
-const SETTINGS_KEY = "intervalTrainer.settings.v10";
-const STATS_KEY = "intervalTrainer.stats.v10";
+const DEFAULT_DIRECTION_MODE = "random";
+const SHORT_DIRECTION_OPTIONS = [
+  { key: "random", label: "Libre" },
+  { key: "ascending", label: "Ascendente" },
+  { key: "descending", label: "Descendente" },
+  { key: "mixed", label: "Mixto" },
+];
+const SETTINGS_KEY = "intervalTrainer.settings.v11";
+const STATS_KEY = "intervalTrainer.stats.v11";
 const SOUNDFONT_LIBRARY = "MusyngKite";
 const SOUNDFONT_BASE_URL = "https://gleitz.github.io/midi-js-soundfonts";
 
@@ -339,6 +347,28 @@ function sanitizeClefSelection(keys) {
   return cleaned.length ? cleaned : DEFAULT_CLEF_KEYS;
 }
 
+function sanitizeDirectionMode(directionMode, noteCount) {
+  if (noteCount >= 4) return "random";
+  if (noteCount === 2 && directionMode === "mixed") return "random";
+  return SHORT_DIRECTION_OPTIONS.some((option) => option.key === directionMode) ? directionMode : DEFAULT_DIRECTION_MODE;
+}
+
+function getDirectionPlan(noteCount, directionMode) {
+  const safeMode = sanitizeDirectionMode(directionMode, noteCount);
+  if (noteCount >= 4 || safeMode === "random") return null;
+  if (noteCount === 2) {
+    if (safeMode === "ascending") return [1];
+    if (safeMode === "descending") return [-1];
+    return null;
+  }
+  if (noteCount === 3) {
+    if (safeMode === "ascending") return [1, 1];
+    if (safeMode === "descending") return [-1, -1];
+    if (safeMode === "mixed") return randomItem([[1, -1], [-1, 1]]);
+  }
+  return null;
+}
+
 function getTwelveToneIntervalKeys(keys) {
   return sanitizeIntervalSelection(keys).filter((key) => key !== "P8");
 }
@@ -350,7 +380,7 @@ function getNotesForClef(clefKey) {
   return { all, central: central.length ? central : all };
 }
 
-function getCandidates(currentNote, selectedIntervalKeys, clefKey, usedPitchClasses = null) {
+function getCandidates(currentNote, selectedIntervalKeys, clefKey, usedPitchClasses = null, forcedDirection = null) {
   const clef = getClefConfig(clefKey);
   const candidates = [];
   const intervalKeys = sanitizeIntervalSelection(selectedIntervalKeys);
@@ -359,6 +389,7 @@ function getCandidates(currentNote, selectedIntervalKeys, clefKey, usedPitchClas
     const interval = getIntervalDefinition(intervalKey);
     if (!interval) return;
     [1, -1].forEach((direction) => {
+      if (typeof forcedDirection === "number" && direction !== forcedDirection) return;
       const candidate = transposeNote(currentNote, interval, direction, clef);
       if (!candidate) return;
       if (usedPitchClasses && usedPitchClasses.has(pitchClassOf(candidate))) return;
@@ -417,16 +448,18 @@ function detectModelLabels(sequence, allowedIntervalKeys = []) {
   });
   return [...new Set(labels)].slice(0, 10);
 }
-function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys) {
+function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys, directionMode = DEFAULT_DIRECTION_MODE) {
   const safeCount = clamp(noteCount, MIN_NOTES, MAX_NOTES);
   const intervals = sanitizeIntervalSelection(selectedIntervalKeys);
   const clefKey = randomItem(sanitizeClefSelection(selectedClefKeys));
   const { all, central } = getNotesForClef(clefKey);
+  const directionPlan = getDirectionPlan(safeCount, directionMode);
   let current = randomItem(central);
   const sequence = [current];
 
   for (let i = 1; i < safeCount; i += 1) {
-    const candidates = getCandidates(current, intervals, clefKey);
+    const forcedDirection = directionPlan ? directionPlan[i - 1] ?? null : null;
+    const candidates = getCandidates(current, intervals, clefKey, null, forcedDirection);
     if (!candidates.length) {
       current = randomItem(all);
     } else {
@@ -442,6 +475,7 @@ function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys) {
     clefKey,
     mode: "intervals",
     intervalKeys: intervals,
+    directionMode: sanitizeDirectionMode(directionMode, safeCount),
     startNote: sequence[0]?.label ?? "—",
   };
 }
@@ -509,6 +543,7 @@ function initialSettings() {
     instrument: DEFAULT_INSTRUMENT,
     selectedIntervalKeys: DEFAULT_INTERVAL_KEYS,
     selectedClefKeys: DEFAULT_CLEF_KEYS,
+    directionMode: DEFAULT_DIRECTION_MODE,
     useTwelveToneSeries: false,
   };
   try {
@@ -519,6 +554,7 @@ function initialSettings() {
       ...stored,
       selectedIntervalKeys: sanitizeIntervalSelection(stored.selectedIntervalKeys ?? defaults.selectedIntervalKeys),
       selectedClefKeys: sanitizeClefSelection(stored.selectedClefKeys ?? defaults.selectedClefKeys),
+      directionMode: sanitizeDirectionMode(stored.directionMode ?? defaults.directionMode, Number(stored.noteCount ?? defaults.noteCount)),
       noteCount: clamp(Number(stored.noteCount ?? defaults.noteCount), MIN_NOTES, MAX_NOTES),
       tempo: clamp(Number(stored.tempo ?? defaults.tempo), MIN_TEMPO, MAX_TEMPO),
       volume: clamp(Number(stored.volume ?? defaults.volume), MIN_VOLUME, MAX_VOLUME),
@@ -597,56 +633,44 @@ function ActionButton({ active, onClick, children, disabled = false }) {
 function ClefChip({ clef, active, onClick }) {
   const previewRef = useRef(null);
 
-  useEffect(() => {
-    let disposed = false;
+  useLayoutEffect(() => {
+    if (!previewRef.current) return;
+    previewRef.current.innerHTML = "";
 
-    async function renderClefPreview() {
-      if (!previewRef.current) return;
-      previewRef.current.innerHTML = "";
+    try {
+      const { Renderer, Stave } = VF;
+      const width = 126;
+      const height = 86;
+      const renderer = new Renderer(previewRef.current, Renderer.Backends.SVG);
+      renderer.resize(width, height);
+      const context = renderer.getContext();
+      const stave = new Stave(8, 22, width - 16);
+      stave.addClef(clef.vex);
+      stave.setContext(context).draw();
 
-      try {
-        const VF = await import("vexflow");
-        if (disposed || !previewRef.current) return;
+      const svg = previewRef.current.querySelector("svg");
+      if (svg) {
+        svg.setAttribute("aria-hidden", "true");
+        svg.style.width = "100%";
+        svg.style.height = "100%";
+        svg.style.overflow = "visible";
 
-        const { Renderer, Stave } = VF;
-        const width = 150;
-        const height = 74;
-        const renderer = new Renderer(previewRef.current, Renderer.Backends.SVG);
-        renderer.resize(width, height);
-        const context = renderer.getContext();
-        const stave = new Stave(8, 4, width - 16);
-        stave.addClef(clef.vex);
-        stave.setContext(context).draw();
-
-        const svg = previewRef.current.querySelector("svg");
-        if (svg) {
-          svg.setAttribute("aria-hidden", "true");
-          svg.style.width = "100%";
-          svg.style.height = "100%";
-
-          if (clef.tag) {
-            const ns = "http://www.w3.org/2000/svg";
-            const tag = document.createElementNS(ns, "text");
-            tag.setAttribute("x", "116");
-            tag.setAttribute("y", clef.tag === "8vb" ? "52" : "22");
-            tag.setAttribute("font-size", "13");
-            tag.setAttribute("font-weight", "700");
-            tag.setAttribute("fill", "currentColor");
-            tag.textContent = clef.tag;
-            svg.appendChild(tag);
-          }
+        if (clef.tag) {
+          const ns = "http://www.w3.org/2000/svg";
+          const tag = document.createElementNS(ns, "text");
+          tag.setAttribute("x", "94");
+          tag.setAttribute("y", clef.tag === "8vb" ? "73" : "20");
+          tag.setAttribute("font-size", "12");
+          tag.setAttribute("font-weight", "700");
+          tag.setAttribute("fill", "currentColor");
+          tag.textContent = clef.tag;
+          svg.appendChild(tag);
         }
-      } catch (error) {
-        if (!previewRef.current) return;
-        previewRef.current.innerHTML = `<div style="font-family:serif;font-size:34px;line-height:72px;text-align:center;">${clef.symbol}${clef.tag ?? ""}</div>`;
       }
+    } catch (error) {
+      previewRef.current.innerHTML = `<div style="font-family:serif;font-size:30px;line-height:64px;text-align:center;">${clef.symbol}${clef.tag ?? ""}</div>`;
     }
-
-    renderClefPreview();
-    return () => {
-      disposed = true;
-    };
-  }, [clef]);
+  }, [clef, active]);
 
   return (
     <button
@@ -654,11 +678,13 @@ function ClefChip({ clef, active, onClick }) {
       onClick={onClick}
       title={clef.label}
       aria-label={clef.label}
-      className={`relative h-24 min-w-[142px] rounded-2xl border px-3 py-2 transition ${
-        active ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500"
+      className={`relative h-[74px] w-[130px] shrink-0 rounded-2xl border px-2 py-1 transition ${
+        active
+          ? "border-sky-400 bg-sky-50 text-sky-800 ring-2 ring-sky-100"
+          : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500"
       }`}
     >
-      <div ref={previewRef} className={`h-full w-full ${active ? "clef-preview-active" : "clef-preview"}`} />
+      <div ref={previewRef} className="h-full w-full" />
     </button>
   );
 }
@@ -682,10 +708,8 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
   const containerRef = useRef(null);
   const [renderError, setRenderError] = useState("");
 
-  useEffect(() => {
-    let disposed = false;
-
-    async function renderStaff() {
+  useLayoutEffect(() => {
+    function renderStaff() {
       if (!containerRef.current) return;
       containerRef.current.innerHTML = "";
       setRenderError("");
@@ -699,11 +723,8 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
       if (!entries.length) return;
 
       try {
-        const VF = await import("vexflow");
-        if (disposed || !containerRef.current) return;
-
         const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental } = VF;
-        const width = Math.max(560, 150 + entries.length * 82);
+        const width = Math.max(640, 150 + entries.length * 82);
         const height = 185;
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
@@ -790,15 +811,12 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
     }
 
     renderStaff();
-    return () => {
-      disposed = true;
-    };
   }, [attemptNotes, exercise, revealFull]);
 
   return (
     <div className="space-y-3">
-      <div className="w-full overflow-x-auto rounded-2xl border border-zinc-200 bg-white p-3">
-        <div ref={containerRef} />
+      <div className="max-w-full overflow-x-auto overflow-y-hidden rounded-2xl border border-zinc-200 bg-white p-3">
+        <div ref={containerRef} className="inline-block min-w-full" />
       </div>
       {renderError ? <p className="text-sm text-red-600">{renderError}</p> : null}
     </div>
@@ -879,6 +897,7 @@ export default function IntervalTrainerPage() {
   const [instrument, setInstrument] = useState(saved?.instrument ?? DEFAULT_INSTRUMENT);
   const [selectedIntervalKeys, setSelectedIntervalKeys] = useState(saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS);
   const [selectedClefKeys, setSelectedClefKeys] = useState(saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS);
+  const [directionMode, setDirectionMode] = useState(saved?.directionMode ?? DEFAULT_DIRECTION_MODE);
   const [useTwelveToneSeries, setUseTwelveToneSeries] = useState(saved?.useTwelveToneSeries ?? false);
   const [exercise, setExercise] = useState(() => {
     const count = saved?.useTwelveToneSeries
@@ -886,7 +905,7 @@ export default function IntervalTrainerPage() {
       : clamp(saved?.noteCount ?? DEFAULT_NOTE_COUNT, MIN_NOTES, MAX_NOTES);
     return saved?.useTwelveToneSeries
       ? buildTwelveToneSeries(count, saved.selectedIntervalKeys, saved.selectedClefKeys)
-      : buildMelody(count, saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS);
+      : buildMelody(count, saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS, saved?.directionMode ?? DEFAULT_DIRECTION_MODE);
   });
   const [attemptNotes, setAttemptNotes] = useState(() => [{ note: exercise.sequence[0], status: "start" }]);
   const [nextIndex, setNextIndex] = useState(1);
@@ -906,6 +925,12 @@ export default function IntervalTrainerPage() {
   const score = scoreFromStats(stats);
   const intervalLabels = useMemo(() => getIntervalLabels(exercise.sequence, exercise.intervalKeys), [exercise]);
   const modelLabels = useMemo(() => detectModelLabels(exercise.sequence, exercise.intervalKeys), [exercise]);
+  const visibleDirectionOptions = useMemo(() => {
+    if (useTwelveToneSeries) return [];
+    if (noteCount === 2) return SHORT_DIRECTION_OPTIONS.filter((option) => option.key !== "mixed");
+    if (noteCount === 3) return SHORT_DIRECTION_OPTIONS;
+    return [];
+  }, [noteCount, useTwelveToneSeries]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -923,10 +948,11 @@ export default function IntervalTrainerPage() {
         instrument,
         selectedIntervalKeys,
         selectedClefKeys,
+        directionMode,
         useTwelveToneSeries,
       }));
     } catch {}
-  }, [instrument, noteCount, selectedClefKeys, selectedIntervalKeys, tempo, useTwelveToneSeries, volume]);
+  }, [directionMode, instrument, noteCount, selectedClefKeys, selectedIntervalKeys, tempo, useTwelveToneSeries, volume]);
 
   useEffect(() => {
     try {
@@ -939,6 +965,10 @@ export default function IntervalTrainerPage() {
       setNoteCount((current) => clamp(current, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES));
     }
   }, [useTwelveToneSeries]);
+
+  useEffect(() => {
+    setDirectionMode((current) => sanitizeDirectionMode(current, noteCount));
+  }, [noteCount]);
 
   const ensureAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
@@ -1134,7 +1164,7 @@ export default function IntervalTrainerPage() {
     const count = useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES);
     const nextExercise = useTwelveToneSeries
       ? buildTwelveToneSeries(count, selectedIntervalKeys, selectedClefKeys)
-      : buildMelody(count, selectedIntervalKeys, selectedClefKeys);
+      : buildMelody(count, selectedIntervalKeys, selectedClefKeys, directionMode);
     setExercise(nextExercise);
     setAttemptNotes([{ note: nextExercise.sequence[0], status: "start" }]);
     setNextIndex(1);
@@ -1143,7 +1173,7 @@ export default function IntervalTrainerPage() {
     setButtonFlash(true);
     window.setTimeout(() => setButtonFlash(false), 420);
     playExercise(nextExercise);
-  }, [canGenerate, noteCount, playExercise, selectedClefKeys, selectedIntervalKeys, useTwelveToneSeries]);
+  }, [canGenerate, directionMode, noteCount, playExercise, selectedClefKeys, selectedIntervalKeys, useTwelveToneSeries]);
 
   const handleKeyboardPress = useCallback((pc) => {
     if (!expectedNote || revealFull) return;
@@ -1181,13 +1211,14 @@ export default function IntervalTrainerPage() {
 
   const resetEverything = useCallback(() => {
     stopPlayback();
-    const freshExercise = buildMelody(DEFAULT_NOTE_COUNT, DEFAULT_INTERVAL_KEYS, DEFAULT_CLEF_KEYS);
+    const freshExercise = buildMelody(DEFAULT_NOTE_COUNT, DEFAULT_INTERVAL_KEYS, DEFAULT_CLEF_KEYS, DEFAULT_DIRECTION_MODE);
     setNoteCount(DEFAULT_NOTE_COUNT);
     setTempo(DEFAULT_TEMPO);
     setVolume(DEFAULT_VOLUME);
     setInstrument(DEFAULT_INSTRUMENT);
     setSelectedIntervalKeys(DEFAULT_INTERVAL_KEYS);
     setSelectedClefKeys(DEFAULT_CLEF_KEYS);
+    setDirectionMode(DEFAULT_DIRECTION_MODE);
     setUseTwelveToneSeries(false);
     setExercise(freshExercise);
     setAttemptNotes([{ note: freshExercise.sequence[0], status: "start" }]);
@@ -1211,7 +1242,7 @@ export default function IntervalTrainerPage() {
     <div className="min-h-screen bg-zinc-100 p-6 pb-32 text-zinc-950 md:p-10 md:pb-32">
       <div className="mx-auto max-w-5xl space-y-6">
         <header className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Entrenador de intervalos · Método Aural</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Entrenador de intervalos melódicos · Método Aural</h1>
         </header>
 
         <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
@@ -1236,6 +1267,26 @@ export default function IntervalTrainerPage() {
                   <span>{useTwelveToneSeries ? 12 : 24}</span>
                 </div>
               </div>
+
+              {visibleDirectionOptions.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-zinc-700">Dirección para ejercicios cortos</span>
+                    <Badge>{SHORT_DIRECTION_OPTIONS.find((option) => option.key === directionMode)?.label ?? "Libre"}</Badge>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {visibleDirectionOptions.map((option) => (
+                      <SelectionChip
+                        key={option.key}
+                        active={directionMode === option.key}
+                        onClick={() => setDirectionMode(option.key)}
+                      >
+                        {option.label}
+                      </SelectionChip>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1277,7 +1328,7 @@ export default function IntervalTrainerPage() {
                     <Badge>{selectedClefKeys.length} activas</Badge>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 overflow-x-hidden">
                   {CLEFS.map((clef) => (
                     <ClefChip key={clef.key} clef={clef} active={selectedClefKeys.includes(clef.key)} onClick={() => toggleClef(clef.key)} />
                   ))}
