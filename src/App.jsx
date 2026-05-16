@@ -231,6 +231,88 @@ function midiToFreq(midi) {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
+function midiToFloat(frequency) {
+  return 69 + 12 * Math.log2(frequency / 440);
+}
+
+function frequencyToNearestMidi(frequency) {
+  return Math.round(midiToFloat(frequency));
+}
+
+function centsOffFromMidi(frequency, midi) {
+  return 1200 * Math.log2(frequency / midiToFreq(midi));
+}
+
+function formatDetectedPitch(frequency) {
+  if (!Number.isFinite(frequency) || frequency <= 0) return "—";
+  const midi = frequencyToNearestMidi(frequency);
+  return `${midiToSimpleNote(midi).label} · ${frequency.toFixed(1)} Hz`;
+}
+
+function autoCorrelatePitch(buffer, sampleRate) {
+  let rms = 0;
+  for (let i = 0; i < buffer.length; i += 1) rms += buffer[i] * buffer[i];
+  rms = Math.sqrt(rms / buffer.length);
+  if (rms < 0.012) return null;
+
+  let start = 0;
+  let end = buffer.length - 1;
+  const threshold = 0.2;
+  for (let i = 0; i < buffer.length / 2; i += 1) {
+    if (Math.abs(buffer[i]) < threshold) {
+      start = i;
+      break;
+    }
+  }
+  for (let i = 1; i < buffer.length / 2; i += 1) {
+    if (Math.abs(buffer[buffer.length - i]) < threshold) {
+      end = buffer.length - i;
+      break;
+    }
+  }
+
+  const data = buffer.slice(start, end);
+  const size = data.length;
+  if (size < 64) return null;
+
+  const minFrequency = 70;
+  const maxFrequency = 1100;
+  const minOffset = Math.floor(sampleRate / maxFrequency);
+  const maxOffset = Math.min(Math.floor(sampleRate / minFrequency), Math.floor(size / 2));
+  let bestOffset = -1;
+  let bestCorrelation = 0;
+  let previousCorrelation = 1;
+  const correlations = new Array(maxOffset + 1).fill(0);
+  let foundGoodCorrelation = false;
+
+  for (let offset = minOffset; offset <= maxOffset; offset += 1) {
+    let correlation = 0;
+    for (let i = 0; i < size - offset; i += 1) {
+      correlation += Math.abs(data[i] - data[i + offset]);
+    }
+    correlation = 1 - correlation / (size - offset);
+    correlations[offset] = correlation;
+
+    if (correlation > 0.9 && correlation > previousCorrelation) {
+      foundGoodCorrelation = true;
+    } else if (foundGoodCorrelation) {
+      const shift = (correlations[offset + 1] - correlations[offset - 1]) / correlations[offset];
+      const refinedOffset = offset - 1 + shift * 0.5;
+      return sampleRate / refinedOffset;
+    }
+
+    if (correlation > bestCorrelation) {
+      bestCorrelation = correlation;
+      bestOffset = offset;
+    }
+    previousCorrelation = correlation;
+  }
+
+  if (bestCorrelation > 0.82 && bestOffset > 0) return sampleRate / bestOffset;
+  return null;
+}
+
+
 function pitchClassOf(noteOrMidi) {
   const midi = typeof noteOrMidi === "number" ? noteOrMidi : noteOrMidi?.midi;
   return ((midi % 12) + 12) % 12;
@@ -665,8 +747,25 @@ function ledgerLinesForY(x, y) {
 function Staff({ exercise, attemptNotes = [], revealFull = false }) {
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
-  const lastRenderedCountRef = useRef(0);
+  const dragRef = useRef({ active: false, startX: 0, startScrollLeft: 0 });
   const [renderError, setRenderError] = useState("");
+  const [scrollMetrics, setScrollMetrics] = useState({ left: 0, max: 0 });
+
+  const updateScrollMetrics = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    setScrollMetrics({
+      left: node.scrollLeft,
+      max: Math.max(0, node.scrollWidth - node.clientWidth),
+    });
+  }, []);
+
+  const scrollStaffBy = useCallback((amount) => {
+    const node = scrollRef.current;
+    if (!node) return;
+    node.scrollBy({ left: amount, behavior: "smooth" });
+    window.setTimeout(updateScrollMetrics, 220);
+  }, [updateScrollMetrics]);
 
   useLayoutEffect(() => {
     function renderStaff() {
@@ -684,15 +783,15 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
 
       try {
         const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental } = VF;
-        const availableWidth = Math.max(320, containerRef.current.parentElement?.clientWidth ?? 650);
+        const availableWidth = Math.max(300, scrollRef.current?.clientWidth ?? 650);
         const compact = availableWidth < 520;
-        const baseWidth = Math.min(650, Math.max(340, availableWidth - 8));
-        const width = Math.max(baseWidth, 132 + entries.length * (compact ? 58 : 74));
-        const height = compact ? 142 : 152;
+        const baseWidth = Math.min(650, Math.max(330, availableWidth - 8));
+        const width = Math.max(baseWidth, 150 + entries.length * (compact ? 64 : 78));
+        const height = compact ? 146 : 154;
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
         const context = renderer.getContext();
-        const stave = new Stave(compact ? 10 : 18, compact ? 24 : 28, width - (compact ? 20 : 38));
+        const stave = new Stave(compact ? 12 : 18, compact ? 24 : 28, width - (compact ? 24 : 40));
         stave.addClef(clef.vex);
         stave.setContext(context).draw();
 
@@ -719,13 +818,15 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
         if (typeof voice.setMode === "function" && Voice.Mode) voice.setMode(Voice.Mode.SOFT);
         if (typeof voice.setStrict === "function") voice.setStrict(false);
         voice.addTickables(vexNotes);
-        new Formatter().joinVoices([voice]).format([voice], width - (compact ? 96 : 125));
+        new Formatter().joinVoices([voice]).format([voice], width - (compact ? 108 : 130));
         voice.draw(context, stave);
 
         const svg = containerRef.current.querySelector("svg");
         const ns = "http://www.w3.org/2000/svg";
         if (svg) {
-          svg.setAttribute("style", `display:block;width:${width}px;min-width:${width}px;max-width:none`);
+          svg.setAttribute("style", "display:block; max-width:none;");
+          svg.setAttribute("width", String(width));
+          svg.setAttribute("height", String(height));
 
           if (clef.tag) {
             const tag = document.createElementNS(ns, "text");
@@ -775,21 +876,15 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
           });
         }
 
-        window.requestAnimationFrame(() => {
-          const scrollEl = scrollRef.current;
-          if (!scrollEl) return;
-
-          const previousCount = lastRenderedCountRef.current;
-          const maxScrollLeft = Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth);
-
-          if (entries.length <= 1) {
-            scrollEl.scrollLeft = 0;
-          } else if (revealFull || entries.length > previousCount) {
-            scrollEl.scrollTo({ left: maxScrollLeft, behavior: "smooth" });
+        window.setTimeout(() => {
+          updateScrollMetrics();
+          const node = scrollRef.current;
+          if (node && node.scrollWidth > node.clientWidth) {
+            const lastNoteX = Math.max(0, Math.min(node.scrollWidth - node.clientWidth, entries.length * (compact ? 64 : 78) - node.clientWidth * 0.45));
+            node.scrollTo({ left: lastNoteX, behavior: "smooth" });
+            window.setTimeout(updateScrollMetrics, 250);
           }
-
-          lastRenderedCountRef.current = entries.length;
-        });
+        }, 0);
       } catch (error) {
         console.error("Error al renderizar la partitura:", error);
         setRenderError("Hubo un problema al dibujar la partitura.");
@@ -797,18 +892,248 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
     }
 
     renderStaff();
-  }, [attemptNotes, exercise, revealFull]);
+  }, [attemptNotes, exercise, revealFull, updateScrollMetrics]);
+
+  const handlePointerDown = useCallback((event) => {
+    const node = scrollRef.current;
+    if (!node || node.scrollWidth <= node.clientWidth) return;
+    dragRef.current = { active: true, startX: event.clientX, startScrollLeft: node.scrollLeft };
+    node.setPointerCapture?.(event.pointerId);
+  }, []);
+
+  const handlePointerMove = useCallback((event) => {
+    const node = scrollRef.current;
+    if (!node || !dragRef.current.active) return;
+    const delta = event.clientX - dragRef.current.startX;
+    node.scrollLeft = dragRef.current.startScrollLeft - delta;
+    updateScrollMetrics();
+  }, [updateScrollMetrics]);
+
+  const stopDrag = useCallback(() => {
+    dragRef.current.active = false;
+  }, []);
+
+  const progress = scrollMetrics.max > 0 ? Math.min(100, Math.max(0, ((scrollMetrics.left + 1) / scrollMetrics.max) * 100)) : 0;
 
   return (
     <div className="space-y-2">
       <div
         ref={scrollRef}
-        className="w-full max-w-full overflow-x-scroll overflow-y-hidden rounded-xl bg-white px-1 pt-2 pb-2 sm:px-2"
-        style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-x", overscrollBehaviorX: "contain" }}
+        onScroll={updateScrollMetrics}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={stopDrag}
+        onPointerCancel={stopDrag}
+        className="max-w-full cursor-grab touch-pan-x overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-xl bg-white px-1 pt-2 pb-1 active:cursor-grabbing sm:px-2"
+        style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin" }}
       >
-        <div ref={containerRef} className="w-fit min-w-max pr-8 sm:mx-auto" />
+        <div ref={containerRef} className="inline-block min-w-max align-top" />
       </div>
+      {scrollMetrics.max > 4 ? (
+        <div className="flex items-center gap-2 px-1 sm:hidden">
+          <button type="button" onClick={() => scrollStaffBy(-180)} className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-600">←</button>
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-200">
+            <div className="h-full rounded-full bg-zinc-500 transition-all" style={{ width: `${Math.max(16, progress)}%` }} />
+          </div>
+          <button type="button" onClick={() => scrollStaffBy(180)} className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-600">→</button>
+        </div>
+      ) : null}
       {renderError ? <p className="text-sm text-red-600">{renderError}</p> : null}
+    </div>
+  );
+}
+
+function TunerPanel({ notes = [], visible = false }) {
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const sourceRef = useRef(null);
+  const streamRef = useRef(null);
+  const rafRef = useRef(null);
+  const lastUiUpdateRef = useRef(0);
+  const holdStartRef = useRef(null);
+  const completedRef = useRef(new Set());
+
+  const [isListening, setIsListening] = useState(false);
+  const [targetIndex, setTargetIndex] = useState(0);
+  const [detectedHz, setDetectedHz] = useState(null);
+  const [cents, setCents] = useState(null);
+  const [trail, setTrail] = useState([]);
+  const [holdSeconds, setHoldSeconds] = useState(2);
+  const [holdProgress, setHoldProgress] = useState(0);
+  const [message, setMessage] = useState("Activa el micrófono y canta la nota marcada.");
+
+  const targetNote = notes[targetIndex] ?? null;
+  const targetFreq = targetNote ? midiToFreq(targetNote.midi) : null;
+  const tolerance = 10;
+  const boundedCents = Number.isFinite(cents) ? clamp(cents, -50, 50) : null;
+  const inTune = Number.isFinite(cents) && Math.abs(cents) <= tolerance;
+  const completedCount = completedRef.current.size;
+
+  const stopListening = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    try { sourceRef.current?.disconnect(); } catch {}
+    try { streamRef.current?.getTracks()?.forEach((track) => track.stop()); } catch {}
+    sourceRef.current = null;
+    streamRef.current = null;
+    analyserRef.current = null;
+    setIsListening(false);
+    holdStartRef.current = null;
+    setHoldProgress(0);
+  }, []);
+
+  const resetTunerState = useCallback(() => {
+    setTargetIndex(0);
+    setDetectedHz(null);
+    setCents(null);
+    setTrail([]);
+    setHoldProgress(0);
+    setMessage("Activa el micrófono y canta la nota marcada.");
+    completedRef.current = new Set();
+    holdStartRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    resetTunerState();
+  }, [notes, resetTunerState]);
+
+  useEffect(() => {
+    return () => stopListening();
+  }, [stopListening]);
+
+  const advanceTarget = useCallback(() => {
+    if (!notes.length) return;
+    completedRef.current.add(targetIndex);
+    if (targetIndex < notes.length - 1) {
+      setTargetIndex((current) => Math.min(notes.length - 1, current + 1));
+      setMessage("Afinada. Pasa a la siguiente nota.");
+    } else {
+      setMessage("Serie cantada completa.");
+    }
+    setTrail([]);
+    setHoldProgress(0);
+    holdStartRef.current = null;
+  }, [notes.length, targetIndex]);
+
+  const analyse = useCallback(() => {
+    const analyser = analyserRef.current;
+    const ctx = audioContextRef.current;
+    const target = notes[targetIndex];
+    if (!analyser || !ctx || !target) return;
+
+    const buffer = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(buffer);
+    const pitch = autoCorrelatePitch(buffer, ctx.sampleRate);
+    const now = performance.now();
+
+    if (pitch && now - lastUiUpdateRef.current > 70) {
+      const nextCents = centsOffFromMidi(pitch, target.midi);
+      const clamped = clamp(nextCents, -50, 50);
+      setDetectedHz(pitch);
+      setCents(nextCents);
+      setTrail((current) => [...current.slice(-70), { cents: clamped, t: now }]);
+
+      if (Math.abs(nextCents) <= tolerance) {
+        if (holdStartRef.current == null) holdStartRef.current = now;
+        const progress = Math.min(1, (now - holdStartRef.current) / (holdSeconds * 1000));
+        setHoldProgress(progress);
+        if (progress >= 1) advanceTarget();
+      } else {
+        holdStartRef.current = null;
+        setHoldProgress(0);
+        setMessage(nextCents < 0 ? "Estás bajo." : "Estás alto.");
+      }
+
+      lastUiUpdateRef.current = now;
+    }
+
+    rafRef.current = requestAnimationFrame(analyse);
+  }, [advanceTarget, holdSeconds, notes, targetIndex]);
+
+  const startListening = useCallback(async () => {
+    if (!targetNote) return;
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!audioContextRef.current) audioContextRef.current = new AudioContextClass();
+      if (audioContextRef.current.state === "suspended") await audioContextRef.current.resume();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      const ctx = audioContextRef.current;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 4096;
+      analyser.smoothingTimeConstant = 0.2;
+      const source = ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      streamRef.current = stream;
+      sourceRef.current = source;
+      analyserRef.current = analyser;
+      setIsListening(true);
+      setMessage("Canta y sostén la nota dentro del centro verde.");
+      rafRef.current = requestAnimationFrame(analyse);
+    } catch (error) {
+      console.error("No se pudo iniciar el afinador:", error);
+      setMessage("No se pudo activar el micrófono. Revisa permisos del navegador.");
+      setIsListening(false);
+    }
+  }, [analyse, targetNote]);
+
+  if (!visible || !notes.length || !targetNote) return null;
+
+  const trailPoints = trail.map((item, index) => {
+    const x = 6 + (index / Math.max(1, trail.length - 1)) * 188;
+    const y = 34 - (item.cents / 50) * 26;
+    return `${x},${clamp(y, 8, 60)}`;
+  }).join(" ");
+  const markerLeft = boundedCents == null ? 50 : 50 + (boundedCents / 50) * 50;
+
+  return (
+    <div className="mx-auto mt-4 w-full max-w-2xl rounded-2xl border border-zinc-200 bg-zinc-50 p-3 sm:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-zinc-800">Afinador · modo estudio</p>
+          <p className="text-xs text-zinc-500">Objetivo: {targetNote.label} · {targetFreq?.toFixed(1)} Hz · margen ±{tolerance} cents</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setTargetIndex((i) => Math.max(0, i - 1))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
+          <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">{targetIndex + 1}/{notes.length}</span>
+          <button type="button" onClick={() => setTargetIndex((i) => Math.min(notes.length - 1, i + 1))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">→</button>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-xl bg-zinc-950 p-3 text-white">
+        <div className="mb-2 flex items-center justify-between text-xs text-zinc-300">
+          <span>{detectedHz ? formatDetectedPitch(detectedHz) : "Escuchando…"}</span>
+          <span>{Number.isFinite(cents) ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents` : "—"}</span>
+        </div>
+        <div className="relative h-16 overflow-hidden rounded-lg bg-black">
+          <div className="absolute inset-y-0 left-1/2 w-[20%] -translate-x-1/2 bg-emerald-500/55" />
+          <div className="absolute inset-y-0 left-1/2 w-px bg-white/80" />
+          <div className="absolute inset-y-0 left-0 w-[40%] bg-red-500/20" />
+          <div className="absolute inset-y-0 right-0 w-[40%] bg-red-500/20" />
+          <svg viewBox="0 0 200 68" className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
+            {trailPoints ? <polyline points={trailPoints} fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /> : null}
+          </svg>
+          {boundedCents != null ? (
+            <div className="absolute top-0 h-full w-0.5 bg-sky-300 shadow-[0_0_12px_rgba(125,211,252,0.9)]" style={{ left: `${clamp(markerLeft, 0, 100)}%` }} />
+          ) : null}
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-700">
+          <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${Math.round(holdProgress * 100)}%` }} />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <p className={`text-xs ${inTune ? "text-emerald-700" : "text-zinc-500"}`}>{message}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setHoldSeconds((s) => clamp(s - 0.5, 0.5, 5))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">−</button>
+          <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700">{holdSeconds.toFixed(1)} s</span>
+          <button type="button" onClick={() => setHoldSeconds((s) => clamp(s + 0.5, 0.5, 5))} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">+</button>
+          {isListening ? (
+            <button type="button" onClick={stopListening} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">Detener</button>
+          ) : (
+            <button type="button" onClick={startListening} className="rounded-full border border-zinc-950 bg-zinc-950 px-3 py-1 text-xs font-semibold text-white">Activar micrófono</button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -863,9 +1188,9 @@ function StatBox({ label, value }) {
 
 function BottomStat({ label, value }) {
   return (
-    <div className="min-w-[78px] rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-1.5 sm:min-w-0 sm:px-3 sm:py-2">
-      <p className="truncate text-[8px] font-semibold uppercase tracking-[0.1em] text-zinc-500 sm:text-[10px] sm:tracking-[0.16em]">{label}</p>
-      <p className="truncate text-xs font-bold text-zinc-900 sm:text-base">{value}</p>
+    <div className="min-w-[92px] rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-2 sm:min-w-0 sm:px-3">
+      <p className="truncate text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500 sm:text-[10px] sm:tracking-[0.16em]">{label}</p>
+      <p className="truncate text-sm font-bold text-zinc-900 sm:text-base">{value}</p>
     </div>
   );
 }
@@ -1216,6 +1541,13 @@ export default function IntervalTrainerPage() {
   const selectAllClefs = useCallback(() => setSelectedClefKeys(CLEFS.map((item) => item.key)), []);
   const deselectAllClefs = useCallback(() => setSelectedClefKeys([]), []);
 
+  const resetScores = useCallback(() => {
+    setStats({ totalSeconds: 0, exercises: 0, correct: 0, incorrect: 0 });
+    try {
+      window.localStorage.removeItem(STATS_KEY);
+    } catch {}
+  }, []);
+
   const resetEverything = useCallback(() => {
     stopPlayback();
     const freshExercise = buildMelody(DEFAULT_NOTE_COUNT, DEFAULT_INTERVAL_KEYS, DEFAULT_CLEF_KEYS, DEFAULT_DIRECTION_MODE);
@@ -1388,10 +1720,13 @@ export default function IntervalTrainerPage() {
                 <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} />
                 <div className="border-t border-zinc-100 px-2 pb-3 pt-1">
                   {exerciseComplete || revealFull ? (
-                    <div className="mx-auto flex w-full max-w-2xl justify-center pt-4">
-                      <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
-                        <RefreshIcon className="h-4 w-4" /> Siguiente ejercicio
-                      </ActionButton>
+                    <div className="space-y-3">
+                      <TunerPanel notes={exercise.sequence} visible={exerciseComplete || revealFull} />
+                      <div className="mx-auto flex w-full max-w-2xl justify-center pt-1">
+                        <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
+                          <RefreshIcon className="h-4 w-4" /> Siguiente ejercicio
+                        </ActionButton>
+                      </div>
                     </div>
                   ) : (
                     <PianoKeyboard onPress={handleKeyboardPress} disabled={false} />
@@ -1425,8 +1760,8 @@ export default function IntervalTrainerPage() {
         </section>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-2 py-1.5 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur sm:px-4 sm:py-3">
-        <div className="mx-auto flex max-w-6xl gap-1.5 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:gap-2 sm:overflow-visible sm:pb-0 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto]">
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-3 py-2 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur sm:px-4 sm:py-3">
+        <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto_auto]">
           <BottomStat label="Tiempo" value={formatTime(stats.totalSeconds)} />
           <BottomStat label="Ejercicios" value={stats.exercises} />
           <BottomStat label="Aciertos" value={stats.correct} />
@@ -1434,10 +1769,17 @@ export default function IntervalTrainerPage() {
           <BottomStat label="Puntuación" value={`${score}/100`} />
           <button
             type="button"
-            onClick={resetEverything}
-            className="inline-flex min-w-[110px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 sm:col-span-3 sm:min-w-0 lg:col-span-1"
+            onClick={resetScores}
+            className="inline-flex min-w-[118px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 sm:min-w-0 lg:col-span-1"
           >
-            <ResetIcon className="h-4 w-4" /> Reiniciar
+            <ResetIcon className="h-4 w-4" /> Reiniciar puntaje
+          </button>
+          <button
+            type="button"
+            onClick={resetEverything}
+            className="inline-flex min-w-[118px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-500 transition hover:border-zinc-400 hover:bg-white sm:min-w-0 lg:col-span-1"
+          >
+            Parámetros
           </button>
         </div>
       </div>
