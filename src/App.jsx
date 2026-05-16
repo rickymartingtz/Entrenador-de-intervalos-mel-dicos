@@ -610,6 +610,19 @@ function getIntervalLabels(sequence, allowedIntervalKeys = []) {
   return getTransitionData(sequence, allowedIntervalKeys).map((transition) => `${transition.short} ${transition.direction > 0 ? "↑" : "↓"}`);
 }
 
+function intervalShortForKey(intervalKey) {
+  return getIntervalDefinition(intervalKey)?.short ?? intervalKey;
+}
+
+function patternHasExplicitDirections(pattern) {
+  return Array.isArray(pattern?.steps) && pattern.steps.some((step) => typeof step.direction === "number");
+}
+
+function patternDirectionsAreUniform(transitions) {
+  if (!Array.isArray(transitions) || !transitions.length) return false;
+  return transitions.every((transition) => transition.direction === transitions[0].direction);
+}
+
 function transitionMatchesModelStep(transition, modelStep) {
   if (!transition || !modelStep) return false;
   if (transition.intervalKey !== modelStep.intervalKey) return false;
@@ -617,23 +630,97 @@ function transitionMatchesModelStep(transition, modelStep) {
   return true;
 }
 
+function transitionsMatchModelPattern(slice, pattern) {
+  if (!Array.isArray(slice) || !pattern?.steps || slice.length !== pattern.steps.length) return false;
+  if (!slice.every((transition, index) => transitionMatchesModelStep(transition, pattern.steps[index]))) return false;
+
+  // Los modelos escritos sin flechas en la lista son modelos direccionales: deben ir
+  // todos ascendentes o todos descendentes. Así evitamos reconocer, por ejemplo,
+  // 4J + 2m si una va hacia arriba y la otra hacia abajo.
+  if (!patternHasExplicitDirections(pattern)) {
+    return patternDirectionsAreUniform(slice);
+  }
+
+  return true;
+}
+
+function modelSuffix(pattern) {
+  const label = pattern?.label ?? "";
+  if (label.includes("·")) return label.split("·").slice(1).join("·").trim();
+  const lower = label.toLowerCase();
+  if (lower.includes("aumentado")) return "aumentado";
+  if (lower.includes("disminuido")) return "disminuido";
+  if (lower.startsWith("aum.")) return "aum.";
+  if (lower.startsWith("dis.")) return "dis.";
+  if (lower.includes("cromática")) return "escala cromática";
+  if (lower.includes("tonos enteros")) return "escala de tonos enteros";
+  return "";
+}
+
+function formatModelLabel(pattern, slice) {
+  if (!pattern || !Array.isArray(slice)) return "";
+
+  if (patternHasExplicitDirections(pattern)) {
+    return pattern.label;
+  }
+
+  const directedSteps = pattern.steps.map((step, index) => {
+    const direction = slice[index]?.direction ?? 1;
+    return `${intervalShortForKey(step.intervalKey)}${direction > 0 ? "↗" : "↘"}`;
+  }).join(" + ");
+
+  const suffix = modelSuffix(pattern);
+  return suffix ? `${directedSteps} · ${suffix}` : directedSteps;
+}
+
 function detectModelLabels(sequence, allowedIntervalKeys = []) {
   const transitions = getTransitionData(sequence, allowedIntervalKeys);
-  const labels = [];
-  MODEL_PATTERNS
+  if (transitions.length < 2) return [];
+
+  const patterns = MODEL_PATTERNS
     .filter((pattern) => pattern.steps.length >= 2)
-    .sort((a, b) => b.steps.length - a.steps.length)
-    .forEach((pattern) => {
-      if (pattern.steps.length > transitions.length) return;
-      for (let start = 0; start <= transitions.length - pattern.steps.length; start += 1) {
-        const slice = transitions.slice(start, start + pattern.steps.length);
-        if (slice.every((transition, index) => transitionMatchesModelStep(transition, pattern.steps[index]))) {
-          labels.push(pattern.label);
-          break;
-        }
-      }
+    .filter((pattern) => pattern.steps.length <= transitions.length);
+
+  const matches = [];
+  for (let start = 0; start < transitions.length; start += 1) {
+    const startMatches = [];
+    patterns.forEach((pattern) => {
+      if (start + pattern.steps.length > transitions.length) return;
+      const slice = transitions.slice(start, start + pattern.steps.length);
+      if (!transitionsMatchModelPattern(slice, pattern)) return;
+      startMatches.push({
+        start,
+        length: pattern.steps.length,
+        label: formatModelLabel(pattern, slice),
+      });
     });
-  return [...new Set(labels)].slice(0, 12);
+
+    // En una misma posición mostramos primero el modelo más largo, pero el orden
+    // general queda determinado por la aparición real dentro del ejercicio.
+    startMatches
+      .sort((a, b) => b.length - a.length)
+      .forEach((match) => matches.push(match));
+  }
+
+  const ordered = [];
+  const seen = new Set();
+  matches.forEach((match) => {
+    if (!match.label || seen.has(match.label)) return;
+    seen.add(match.label);
+    ordered.push(match.label);
+  });
+
+  return ordered.slice(0, 12);
+}
+
+function undirectedPatternDirectionFromPlan(pattern, directionPlan) {
+  if (patternHasExplicitDirections(pattern)) return null;
+  if (!Array.isArray(directionPlan)) return null;
+  const forced = directionPlan
+    .slice(0, pattern.steps.length)
+    .filter((direction) => typeof direction === "number");
+  if (!forced.length) return null;
+  return forced.every((direction) => direction === forced[0]) ? forced[0] : false;
 }
 
 function patternFitsIntervalSelection(pattern, intervalKeys) {
@@ -644,6 +731,11 @@ function patternFitsIntervalSelection(pattern, intervalKeys) {
 
 function patternFitsDirectionPlan(pattern, directionPlan) {
   if (!directionPlan) return true;
+
+  if (!patternHasExplicitDirections(pattern)) {
+    return undirectedPatternDirectionFromPlan(pattern, directionPlan) !== false;
+  }
+
   return pattern.steps.every((step, index) => {
     const forced = directionPlan[index];
     if (typeof forced !== "number") return true;
@@ -667,6 +759,12 @@ function buildMelodyFromModel(noteCount, selectedIntervalKeys, selectedClefKeys,
 
   for (let attempt = 0; attempt < 120; attempt += 1) {
     const pattern = randomItem(usablePatterns);
+    const plannedUndirectedDirection = undirectedPatternDirectionFromPlan(pattern, directionPlan);
+    const modelDirection = !patternHasExplicitDirections(pattern)
+      ? (plannedUndirectedDirection === false ? false : (typeof plannedUndirectedDirection === "number" ? plannedUndirectedDirection : randomItem([1, -1])))
+      : null;
+    if (modelDirection === false) continue;
+
     let current = randomItem(central.length ? central : all);
     const sequence = [current];
     let failed = false;
@@ -674,7 +772,7 @@ function buildMelodyFromModel(noteCount, selectedIntervalKeys, selectedClefKeys,
     for (let i = 0; i < pattern.steps.length; i += 1) {
       const modelStep = pattern.steps[i];
       const forcedDirection = directionPlan ? directionPlan[i] ?? null : null;
-      const direction = typeof modelStep.direction === "number" ? modelStep.direction : forcedDirection;
+      const direction = typeof modelStep.direction === "number" ? modelStep.direction : (typeof modelDirection === "number" ? modelDirection : forcedDirection);
       const candidates = getCandidates(current, [modelStep.intervalKey], clefKey, null, direction);
       if (!candidates.length) {
         failed = true;
@@ -716,7 +814,7 @@ function buildMelodyFromModel(noteCount, selectedIntervalKeys, selectedClefKeys,
 function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys, directionMode = DEFAULT_DIRECTION_MODE) {
   const safeCount = clamp(noteCount, MIN_NOTES, MAX_NOTES);
   const intervals = sanitizeIntervalSelection(selectedIntervalKeys);
-  const modelBased = safeCount >= 3 && Math.random() < 0.68
+  const modelBased = safeCount >= 3 && Math.random() < 0.76
     ? buildMelodyFromModel(safeCount, intervals, selectedClefKeys, directionMode)
     : null;
   if (modelBased) return modelBased;
@@ -890,7 +988,7 @@ function getExerciseTuningNotes(exercise) {
 
 function getExerciseIntervalLabels(exercise) {
   if (exercise?.type === "harmonic") {
-    return (exercise.pairs ?? []).map((pair, index) => `${index + 1}. ${pair.intervalShort ?? "—"}`);
+    return (exercise.pairs ?? []).map((pair, index) => `${index + 1}. ${pair.intervalShort ?? "—"} armónico`);
   }
   return getIntervalLabels(exercise?.sequence ?? [], exercise?.intervalKeys ?? []);
 }
