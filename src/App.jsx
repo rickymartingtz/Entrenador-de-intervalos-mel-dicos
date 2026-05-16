@@ -916,9 +916,23 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
       const clef = getClefConfig(exercise?.clefKey ?? "treble");
       const isHarmonic = exercise?.type === "harmonic";
       const target = exercise?.sequence ?? [];
-      const entries = isHarmonic
-        ? (attemptNotes ?? []).filter((entry) => entry.lowerVisible || entry.upperVisible)
-        : (attemptNotes.length > 0 ? attemptNotes : target.slice(0, 1).map((note) => ({ note, status: "start" })));
+      const fullSlots = isHarmonic
+        ? (exercise?.pairs ?? []).map((pair, index) => {
+            const attempt = (attemptNotes ?? [])[index] ?? {};
+            return {
+              lower: attempt.lower ?? pair.lower,
+              upper: attempt.upper ?? pair.upper,
+              lowerVisible: Boolean(attempt.lowerVisible),
+              upperVisible: Boolean(attempt.upperVisible),
+              lowerStatus: attempt.lowerStatus ?? null,
+              upperStatus: attempt.upperStatus ?? null,
+            };
+          })
+        : (target.length ? target : attemptNotes.map((entry) => entry.note).filter(Boolean)).map((note, index) => {
+            const attempt = (attemptNotes ?? [])[index];
+            return attempt ? { note: attempt.note ?? note, status: attempt.status, visible: true } : { note, status: "hidden", visible: false };
+          });
+      const entries = fullSlots;
 
       if (!entries.length) return;
 
@@ -950,15 +964,19 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         renderer.resize(width, height);
         const context = renderer.getContext();
         const stave = new Stave(compact ? 8 : 14, compact ? 30 : 34, width - (compact ? 16 : 28));
+        if (VF.Barline?.type?.END && typeof stave.setEndBarType === "function") {
+          stave.setEndBarType(VF.Barline.type.END);
+        }
         stave.addClef(clef.vex);
         stave.setContext(context).draw();
 
         const accidentalState = new Map();
         const noteGroups = entries.map((entry) => {
-          if (!isHarmonic) return [{ note: entry.note, role: "single", status: entry.status }];
+          if (!isHarmonic) return [{ note: entry.note, role: "single", status: entry.status, visible: entry.visible !== false }];
           const group = [];
-          if (entry.lowerVisible) group.push({ note: entry.lower, role: "lower", status: entry.lowerStatus });
-          if (entry.upperVisible) group.push({ note: entry.upper, role: "upper", status: entry.upperStatus });
+          if (entry.lowerVisible) group.push({ note: entry.lower, role: "lower", status: entry.lowerStatus, visible: true });
+          if (entry.upperVisible) group.push({ note: entry.upper, role: "upper", status: entry.upperStatus, visible: true });
+          if (!group.length && entry.lower) group.push({ note: entry.lower, role: "placeholder", status: "hidden", visible: false });
           return group;
         });
 
@@ -968,7 +986,12 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
             keys: group.map(({ note }) => noteToVexKey(note, clef)),
             duration: "w",
           });
-          group.forEach(({ note }, noteIndex) => {
+          const allHidden = group.every((item) => item.visible === false);
+          if (allHidden && typeof staveNote.setStyle === "function") {
+            staveNote.setStyle({ fillStyle: "rgba(0,0,0,0)", strokeStyle: "rgba(0,0,0,0)" });
+          }
+          group.forEach(({ note, visible }, noteIndex) => {
+            if (visible === false) return;
             const stateKey = `${note.letter}${note.octave + (clef.displayOctaveShift ?? 0)}`;
             const previousAccidental = accidentalState.get(stateKey) ?? 0;
             if (note.accidental !== 0) {
@@ -1005,27 +1028,6 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
             tag.textContent = clef.tag;
             svg.appendChild(tag);
           }
-
-          const topLineY = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : (compact ? 70 : 74);
-          const bottomLineY = typeof stave.getYForLine === "function" ? stave.getYForLine(4) : (compact ? 110 : 114);
-          const rightBarX = (compact ? 8 : 14) + (width - (compact ? 16 : 28)) - 6;
-          const thinBar = document.createElementNS(ns, "line");
-          thinBar.setAttribute("x1", String(rightBarX - 6));
-          thinBar.setAttribute("x2", String(rightBarX - 6));
-          thinBar.setAttribute("y1", String(topLineY));
-          thinBar.setAttribute("y2", String(bottomLineY));
-          thinBar.setAttribute("stroke", "#27272a");
-          thinBar.setAttribute("stroke-width", "1.5");
-          svg.appendChild(thinBar);
-          const thickBar = document.createElementNS(ns, "line");
-          thickBar.setAttribute("x1", String(rightBarX));
-          thickBar.setAttribute("x2", String(rightBarX));
-          thickBar.setAttribute("y1", String(topLineY));
-          thickBar.setAttribute("y2", String(bottomLineY));
-          thickBar.setAttribute("stroke", "#27272a");
-          thickBar.setAttribute("stroke-width", "3");
-          thickBar.setAttribute("stroke-linecap", "square");
-          svg.appendChild(thickBar);
 
           entries.forEach((entry, index) => {
             const vexNote = vexNotes[index];
@@ -1078,17 +1080,21 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
 
             if (!isHarmonic) {
               const y = Array.isArray(ys) && ys.length ? ys[0] : 92;
-              drawMark(entry.status, y, "above");
-              addNoteHitArea(entry.note, y);
+              if (entry.visible !== false) {
+                drawMark(entry.status, y, "above");
+                addNoteHitArea(entry.note, y);
+              }
             } else {
               const group = noteGroups[index];
               const groupYs = [];
               group.forEach((item, groupIndex) => {
                 const y = ys[groupIndex] ?? ys[0] ?? 92;
-                groupYs.push(y);
-                drawMark(item.status, y, item.role === "lower" ? "below" : "above");
+                if (item.visible !== false) {
+                  groupYs.push(y);
+                  drawMark(item.status, y, item.role === "lower" ? "below" : "above");
+                }
               });
-              const groupNotes = group.map((item) => item.note).filter(Boolean);
+              const groupNotes = group.filter((item) => item.visible !== false).map((item) => item.note).filter(Boolean);
               if (typeof onNotePress === "function" && groupNotes.length) {
                 const minY = Math.min(...groupYs, 58);
                 const maxY = Math.max(...groupYs, 112);
@@ -1122,12 +1128,6 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
 
         window.setTimeout(() => {
           updateScrollMetrics();
-          const node = scrollRef.current;
-          if (node && node.scrollWidth > node.clientWidth && !compact) {
-            const lastNoteX = Math.max(0, Math.min(node.scrollWidth - node.clientWidth, entries.length * noteSpacing - node.clientWidth * 0.45));
-            node.scrollTo({ left: lastNoteX, behavior: "smooth" });
-            window.setTimeout(updateScrollMetrics, 250);
-          }
         }, 0);
       } catch (error) {
         console.error("Error al renderizar la partitura:", error);
