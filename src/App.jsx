@@ -187,7 +187,6 @@ const MODEL_PATTERNS = [
 
 
 const INSTRUMENTS = [
-  { value: "choir", label: "Coro Aahs", soundfont: "choir_aahs", fallback: "voice", sustain: true },
   { value: "voiceOohs", label: "Voz Oohs", soundfont: "voice_oohs", fallback: "voice", sustain: true },
   { value: "synthVoice", label: "Voz sintética", soundfont: "synth_voice", fallback: "voice", sustain: true },
   { value: "churchOrgan", label: "Órgano de iglesia", soundfont: "church_organ", fallback: "organ", sustain: true },
@@ -269,68 +268,74 @@ function formatDetectedPitch(frequency) {
 }
 
 function autoCorrelatePitch(buffer, sampleRate) {
+  // Robust autocorrelation tuned for sung voice.
+  // Returns null when the input is too quiet/noisy instead of guessing.
   let rms = 0;
-  for (let i = 0; i < buffer.length; i += 1) rms += buffer[i] * buffer[i];
-  rms = Math.sqrt(rms / buffer.length);
-  if (rms < 0.012) return null;
+  let mean = 0;
+  for (let i = 0; i < buffer.length; i += 1) mean += buffer[i];
+  mean /= buffer.length || 1;
 
-  let start = 0;
-  let end = buffer.length - 1;
-  const threshold = 0.2;
-  for (let i = 0; i < buffer.length / 2; i += 1) {
-    if (Math.abs(buffer[i]) < threshold) {
-      start = i;
-      break;
-    }
+  const data = new Float32Array(buffer.length);
+  for (let i = 0; i < buffer.length; i += 1) {
+    const value = buffer[i] - mean;
+    data[i] = value;
+    rms += value * value;
   }
-  for (let i = 1; i < buffer.length / 2; i += 1) {
-    if (Math.abs(buffer[buffer.length - i]) < threshold) {
-      end = buffer.length - i;
-      break;
+  rms = Math.sqrt(rms / data.length);
+  if (rms < 0.006) return null;
+
+  const minFrequency = 55;
+  const maxFrequency = 1400;
+  const minLag = Math.max(2, Math.floor(sampleRate / maxFrequency));
+  const maxLag = Math.min(Math.floor(sampleRate / minFrequency), Math.floor(data.length * 0.75));
+  let bestLag = -1;
+  let bestCorrelation = -1;
+
+  for (let lag = minLag; lag <= maxLag; lag += 1) {
+    let sum = 0;
+    let energyA = 0;
+    let energyB = 0;
+    for (let i = 0; i < data.length - lag; i += 1) {
+      const a = data[i];
+      const b = data[i + lag];
+      sum += a * b;
+      energyA += a * a;
+      energyB += b * b;
     }
-  }
-
-  const data = buffer.slice(start, end);
-  const size = data.length;
-  if (size < 64) return null;
-
-  const minFrequency = 70;
-  const maxFrequency = 1100;
-  const minOffset = Math.floor(sampleRate / maxFrequency);
-  const maxOffset = Math.min(Math.floor(sampleRate / minFrequency), Math.floor(size / 2));
-  let bestOffset = -1;
-  let bestCorrelation = 0;
-  let previousCorrelation = 1;
-  const correlations = new Array(maxOffset + 1).fill(0);
-  let foundGoodCorrelation = false;
-
-  for (let offset = minOffset; offset <= maxOffset; offset += 1) {
-    let correlation = 0;
-    for (let i = 0; i < size - offset; i += 1) {
-      correlation += Math.abs(data[i] - data[i + offset]);
-    }
-    correlation = 1 - correlation / (size - offset);
-    correlations[offset] = correlation;
-
-    if (correlation > 0.9 && correlation > previousCorrelation) {
-      foundGoodCorrelation = true;
-    } else if (foundGoodCorrelation) {
-      const shift = (correlations[offset + 1] - correlations[offset - 1]) / correlations[offset];
-      const refinedOffset = offset - 1 + shift * 0.5;
-      return sampleRate / refinedOffset;
-    }
-
+    const denom = Math.sqrt(energyA * energyB);
+    if (denom <= 0) continue;
+    const correlation = sum / denom;
     if (correlation > bestCorrelation) {
       bestCorrelation = correlation;
-      bestOffset = offset;
+      bestLag = lag;
     }
-    previousCorrelation = correlation;
   }
 
-  if (bestCorrelation > 0.82 && bestOffset > 0) return sampleRate / bestOffset;
-  return null;
-}
+  if (bestLag <= 0 || bestCorrelation < 0.56) return null;
 
+  const corrAt = (lag) => {
+    if (lag < minLag || lag > maxLag) return bestCorrelation;
+    let sum = 0;
+    let energyA = 0;
+    let energyB = 0;
+    for (let i = 0; i < data.length - lag; i += 1) {
+      const a = data[i];
+      const b = data[i + lag];
+      sum += a * b;
+      energyA += a * a;
+      energyB += b * b;
+    }
+    const denom = Math.sqrt(energyA * energyB);
+    return denom > 0 ? sum / denom : 0;
+  };
+  const left = corrAt(bestLag - 1);
+  const center = bestCorrelation;
+  const right = corrAt(bestLag + 1);
+  const divisor = left - 2 * center + right;
+  const adjustment = Math.abs(divisor) > 1e-6 ? 0.5 * (left - right) / divisor : 0;
+  const refinedLag = bestLag + clamp(adjustment, -0.5, 0.5);
+  return sampleRate / refinedLag;
+}
 
 function pitchClassOf(noteOrMidi) {
   const midi = typeof noteOrMidi === "number" ? noteOrMidi : noteOrMidi?.midi;
@@ -866,7 +871,7 @@ function ledgerLinesForY(x, y) {
   return lines;
 }
 
-function Staff({ exercise, attemptNotes = [], revealFull = false }) {
+function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = null }) {
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
   const dragRef = useRef({ active: false, startX: 0, startScrollLeft: 0 });
@@ -1000,13 +1005,34 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
               svg.appendChild(underline);
             };
 
+            const addNoteHitArea = (note, y) => {
+              if (typeof onNotePress !== "function" || !note) return;
+              const hit = document.createElementNS(ns, "rect");
+              hit.setAttribute("x", String(noteX - 24));
+              hit.setAttribute("y", String(y - 34));
+              hit.setAttribute("width", "48");
+              hit.setAttribute("height", "68");
+              hit.setAttribute("fill", "transparent");
+              hit.setAttribute("style", "cursor:pointer;");
+              hit.setAttribute("aria-label", `Escuchar ${note.label}`);
+              hit.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onNotePress(note);
+              });
+              svg.appendChild(hit);
+            };
+
             if (!isHarmonic) {
-              drawMark(entry.status, Array.isArray(ys) && ys.length ? ys[0] : 92, "above");
+              const y = Array.isArray(ys) && ys.length ? ys[0] : 92;
+              drawMark(entry.status, y, "above");
+              addNoteHitArea(entry.note, y);
             } else {
               const group = noteGroups[index];
               group.forEach((item, groupIndex) => {
                 const y = ys[groupIndex] ?? ys[0] ?? 92;
                 drawMark(item.status, y, item.role === "lower" ? "below" : "above");
+                addNoteHitArea(item.note, y);
               });
             }
           });
@@ -1027,7 +1053,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
       }
     }
     renderStaff();
-  }, [attemptNotes, exercise, revealFull, updateScrollMetrics]);
+  }, [attemptNotes, exercise, revealFull, onNotePress, updateScrollMetrics]);
 
   const handlePointerDown = useCallback((event) => {
     const node = scrollRef.current;
@@ -1059,7 +1085,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false }) {
   const progress = scrollMetrics.max > 0 ? Math.min(100, Math.max(0, ((scrollMetrics.left + 1) / scrollMetrics.max) * 100)) : 0;
 
   return (
-    <div className="space-y-2">
+    <div className="mx-auto max-w-2xl space-y-2">
       <div
         ref={scrollRef}
         onScroll={updateScrollMetrics}
@@ -1095,6 +1121,8 @@ function TunerPanel({ notes = [], visible = false }) {
   const streamRef = useRef(null);
   const rafRef = useRef(null);
   const lastUiUpdateRef = useRef(0);
+  const smoothedPitchRef = useRef(null);
+  const smoothedCentsRef = useRef(null);
   const holdStartRef = useRef(null);
   const completedRef = useRef(new Set());
 
@@ -1137,6 +1165,8 @@ function TunerPanel({ notes = [], visible = false }) {
     setHoldProgress(0);
     setMessage("Activa el micrófono y canta la nota marcada.");
     completedRef.current = new Set();
+    smoothedPitchRef.current = null;
+    smoothedCentsRef.current = null;
     holdStartRef.current = null;
   }, []);
 
@@ -1167,17 +1197,28 @@ function TunerPanel({ notes = [], visible = false }) {
     const now = performance.now();
 
     if (pitch && now - lastUiUpdateRef.current > 70) {
-      const nearestMidi = frequencyToNearestMidi(pitch);
+      const previousPitch = smoothedPitchRef.current;
+      const nextPitch = previousPitch && Math.abs(1200 * Math.log2(pitch / previousPitch)) < 500
+        ? previousPitch * 0.72 + pitch * 0.28
+        : pitch;
+      smoothedPitchRef.current = nextPitch;
+
+      const nearestMidi = frequencyToNearestMidi(nextPitch);
       const label = midiToSimpleNote(nearestMidi).label;
-      const nextCents = mode === "free"
-        ? centsOffFromNearestChromatic(pitch)
-        : (targetNote ? centsOffFromPitchClass(pitch, targetNote.midi) : null);
-      if (nextCents != null) {
+      const rawCents = mode === "free"
+        ? centsOffFromNearestChromatic(nextPitch)
+        : (targetNote ? centsOffFromPitchClass(nextPitch, targetNote.midi) : null);
+      if (rawCents != null) {
+        const previousCents = smoothedCentsRef.current;
+        const nextCents = previousCents == null || Math.abs(rawCents - previousCents) > 80
+          ? rawCents
+          : previousCents * 0.7 + rawCents * 0.3;
+        smoothedCentsRef.current = nextCents;
         const clamped = clamp(nextCents, -50, 50);
-        setDetectedHz(pitch);
+        setDetectedHz(nextPitch);
         setDetectedLabel(label);
         setCents(nextCents);
-        setTrail((current) => [...current.slice(-95), { cents: clamped, t: now }]);
+        setTrail((current) => [...current.slice(-115), { cents: clamped, t: now }]);
 
         if (mode === "study" && targetNote) {
           if (Math.abs(nextCents) <= tolerance && pitchClassOf(nearestMidi) === pitchClassOf(targetNote)) {
@@ -1213,8 +1254,8 @@ function TunerPanel({ notes = [], visible = false }) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
       const ctx = audioContextRef.current;
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 4096;
-      analyser.smoothingTimeConstant = 0.18;
+      analyser.fftSize = 8192;
+      analyser.smoothingTimeConstant = 0.05;
       const source = ctx.createMediaStreamSource(stream);
       source.connect(analyser);
       streamRef.current = stream;
@@ -1233,14 +1274,14 @@ function TunerPanel({ notes = [], visible = false }) {
   if (!visible || !notes.length) return null;
 
   const trailPoints = trail.map((item, index) => {
-    const x = 6 + (index / Math.max(1, trail.length - 1)) * 188;
-    const y = 34 - (item.cents / 50) * 25;
-    return `${x},${clamp(y, 8, 60)}`;
+    const x = 5 + (index / Math.max(1, trail.length - 1)) * 190;
+    const y = 40 - (item.cents / 50) * 30;
+    return `${x},${clamp(y, 8, 72)}`;
   }).join(" ");
   const markerLeft = boundedCents == null ? 50 : 50 + (boundedCents / 50) * 50;
 
   return (
-    <div className="mx-auto mt-4 w-full max-w-2xl rounded-2xl border border-zinc-200 bg-zinc-50 p-3 sm:p-4">
+    <div className={`mx-auto mt-4 w-full max-w-2xl rounded-2xl border p-3 transition sm:p-4 ${inTune ? "border-emerald-300 bg-emerald-50/60" : "border-zinc-200 bg-zinc-50"}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-zinc-800">Afinador</p>
@@ -1262,20 +1303,23 @@ function TunerPanel({ notes = [], visible = false }) {
         </div>
       ) : null}
 
-      <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3">
+      <div className={`mt-3 rounded-xl border bg-white p-3 transition ${inTune ? "border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.16)]" : "border-zinc-200"}`}>
         <div className="mb-2 flex items-center justify-between text-xs text-zinc-500">
           <span>{detectedHz ? `${detectedLabel} · ${detectedHz.toFixed(1)} Hz` : "Escuchando…"}</span>
           <span>{Number.isFinite(cents) ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents` : "—"}</span>
         </div>
-        <div className="relative h-16 overflow-hidden rounded-lg bg-zinc-100">
-          <div className="absolute inset-y-0 left-1/2 w-[20%] -translate-x-1/2 bg-emerald-400/45" />
-          <div className="absolute inset-y-0 left-1/2 w-px bg-zinc-800/70" />
-          <svg viewBox="0 0 200 68" className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
-            <line x1="0" x2="200" y1="34" y2="34" stroke="#d4d4d8" strokeWidth="1" />
-            {trailPoints ? <polyline points={trailPoints} fill="none" stroke="#0f172a" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" /> : null}
+        <div className="relative h-20 overflow-hidden rounded-lg border border-zinc-200 bg-gradient-to-r from-rose-100 via-emerald-100 to-rose-100">
+          <div className="absolute inset-y-0 left-1/2 w-[20%] -translate-x-1/2 bg-emerald-300/70" />
+          <div className="absolute inset-y-0 left-[40%] w-px bg-emerald-700/50" />
+          <div className="absolute inset-y-0 left-[60%] w-px bg-emerald-700/50" />
+          <div className={`absolute inset-y-1 left-1/2 w-[20%] -translate-x-1/2 rounded-md border ${inTune ? "border-emerald-700 bg-emerald-400/35" : "border-emerald-600/40 bg-transparent"}`} />
+          <div className="absolute inset-y-0 left-1/2 w-px bg-zinc-900/70" />
+          <svg viewBox="0 0 200 80" className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
+            <line x1="0" x2="200" y1="40" y2="40" stroke="#71717a" strokeWidth="1" opacity="0.45" />
+            {trailPoints ? <polyline points={trailPoints} fill="none" stroke={inTune ? "#047857" : "#0f172a"} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /> : null}
           </svg>
           {boundedCents != null ? (
-            <div className="absolute top-0 h-full w-0.5 bg-sky-500 shadow-[0_0_10px_rgba(14,165,233,0.55)]" style={{ left: `${clamp(markerLeft, 0, 100)}%` }} />
+            <div className={`absolute top-0 h-full w-0.5 shadow-[0_0_10px_rgba(14,165,233,0.55)] ${inTune ? "bg-emerald-700" : "bg-sky-500"}`} style={{ left: `${clamp(markerLeft, 0, 100)}%` }} />
           ) : null}
         </div>
         {mode === "study" ? (
@@ -1655,6 +1699,35 @@ export default function IntervalTrainerPage() {
     }
   }, [createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, selectedInstrument, stopAllAudio, tempo, volume]);
 
+  const playSingleNote = useCallback(async (note) => {
+    if (!note) return;
+    const sessionId = playbackSessionRef.current + 1;
+    playbackSessionRef.current = sessionId;
+    stopAllAudio();
+    setIsPlaying(false);
+    try {
+      const ctx = await ensureAudioContext();
+      const start = ctx.currentTime + 0.04;
+      const duration = selectedInstrument?.sustain ? 1.15 : 0.95;
+      const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
+      let sfInstrument = null;
+      try {
+        sfInstrument = await getSoundfontInstrument(ctx, selectedInstrument);
+      } catch (error) {
+        console.warn("No se pudo cargar SoundFont para nota aislada. Usando síntesis interna.", error);
+      }
+      if (sessionId !== playbackSessionRef.current) return;
+      if (sfInstrument) {
+        const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
+        activePlayersRef.current.push(player);
+      } else {
+        createFallbackVoice(ctx, midiToFreq(note.midi), selectedInstrument?.fallback ?? "piano", start, duration, volume);
+      }
+    } catch (error) {
+      console.error("Error al reproducir la nota:", error);
+    }
+  }, [createFallbackVoice, ensureAudioContext, getSoundfontInstrument, selectedInstrument, stopAllAudio, volume]);
+
   const startExercise = useCallback(() => {
     if (!canGenerate) return;
     const count = isHarmonicMode ? clamp(noteCount, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS) : (useTwelveToneSeries ? clamp(noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES) : clamp(noteCount, MIN_NOTES, MAX_NOTES));
@@ -1942,7 +2015,7 @@ export default function IntervalTrainerPage() {
               </div>
 
               <div className="rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-sm sm:p-2">
-                <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} />
+                <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} onNotePress={playSingleNote} />
                 <div className="border-t border-zinc-100 px-2 pb-3 pt-1">
                   {exerciseComplete || revealFull ? (
                     <div className="space-y-3">
@@ -2002,9 +2075,9 @@ export default function IntervalTrainerPage() {
           <button
             type="button"
             onClick={resetEverything}
-            className="inline-flex min-w-[118px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-500 transition hover:border-zinc-400 hover:bg-white sm:min-w-0 lg:col-span-1"
+            className="inline-flex min-w-[142px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-500 transition hover:border-zinc-400 hover:bg-white sm:min-w-0 lg:col-span-1"
           >
-            Parámetros
+            <ResetIcon className="h-4 w-4" /> Reiniciar parámetros
           </button>
         </div>
       </div>
