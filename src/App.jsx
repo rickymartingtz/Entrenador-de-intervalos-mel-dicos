@@ -1811,7 +1811,7 @@ function ClefChip({ clef, active, onClick }) {
       onClick={onClick}
       title={clef.label}
       aria-label={clef.label}
-      className={`inline-flex min-h-[34px] items-center justify-center rounded-full border px-3 py-1.5 text-xs font-medium transition sm:min-h-[38px] sm:px-3.5 sm:py-1.5 sm:text-sm ${
+      className={`inline-flex min-h-[34px] items-center justify-center rounded-full border px-3 py-1.5 text-xs font-normal transition sm:min-h-[38px] sm:px-3.5 sm:py-1.5 sm:text-sm ${
         active
           ? "aural-active"
           : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-50"
