@@ -101,7 +101,7 @@ const MIN_NOTES = 2;
 const MAX_NOTES = 24;
 const TWELVE_TONE_MIN_NOTES = 4;
 const TWELVE_TONE_MAX_NOTES = 12;
-const MIN_TEMPO = 30;
+const MIN_TEMPO = 10;
 const MAX_TEMPO = 200;
 const DEFAULT_NOTE_COUNT = 4;
 const DEFAULT_TEMPO = 50;
@@ -4288,7 +4288,7 @@ export default function IntervalTrainerPage() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Tempo</span><Badge>{tempo} BPM</Badge></div>
                   <input type="range" min={MIN_TEMPO} max={MAX_TEMPO} step={1} value={tempo} onChange={(event) => setTempo(Number(event.target.value))} className="w-full accent-sky-600" />
-                  <div className="flex justify-between text-xs text-zinc-500"><span>30 BPM</span><span>200 BPM</span></div>
+                  <div className="flex justify-between text-xs text-zinc-500"><span>{MIN_TEMPO} BPM</span><span>{MAX_TEMPO} BPM</span></div>
                 </div>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Volumen</span><Badge>{volume}%</Badge></div>
