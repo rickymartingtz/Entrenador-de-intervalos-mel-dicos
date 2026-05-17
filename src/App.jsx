@@ -1806,10 +1806,20 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
               upperStatus: statusVoice === "upper" ? first.upperStatus : null,
               visualKind,
             });
+            const firstVoice = firstOrder[0] ?? "lower";
+            const hasAddedVoiceVisible = firstOrder
+              .slice(1)
+              .some((voice) => Boolean(first?.[`${voice}Visible`]));
+            const shouldShowGivenInsideFirstChord = revealFull || hasAddedVoiceVisible;
+            const firstChordSlot = {
+              ...first,
+              lowerVisible: Boolean(first.lowerVisible) && (firstVoice !== "lower" || shouldShowGivenInsideFirstChord),
+              middleVisible: Boolean(first.middleVisible) && (firstVoice !== "middle" || shouldShowGivenInsideFirstChord),
+              upperVisible: Boolean(first.upperVisible) && (firstVoice !== "upper" || shouldShowGivenInsideFirstChord),
+            };
             return [
-              makeGradualSlot(firstOrder.slice(0, 1), firstOrder[0], "single"),
-              makeGradualSlot(firstOrder.slice(0, 2), firstOrder[1], "partial"),
-              makeGradualSlot(firstOrder.slice(0, 3), firstOrder[2], "full"),
+              makeGradualSlot([firstVoice], firstVoice, "single"),
+              firstChordSlot,
               ...chordSlots.slice(1),
             ];
           })()
@@ -3039,16 +3049,16 @@ export default function IntervalTrainerPage() {
     try {
       const ctx = await ensureAudioContext();
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
+      // En acordes, el tempo se entiende como negra: la redonda completa dura 4 negras.
+      // Con silencio usamos 13/14 de redonda sonando y 1/14 de redonda como respiración:
+      // a 43 BPM => evento total ≈ 5.58 s, sonido ≈ 5.18 s, silencio ≈ 0.40 s.
       const chordWholeDuration = secondsPerBeat * 4;
-      const chordGapRatioToSound = 0.08;
-      const chordSoundDuration = chordGapMode === "noSilence"
-        ? chordWholeDuration
-        : chordWholeDuration / (1 + chordGapRatioToSound);
+      const chordSoundDuration = chordGapMode === "noSilence" ? chordWholeDuration : chordWholeDuration * (13 / 14);
       const chordGapDuration = chordGapMode === "noSilence" ? 0 : chordWholeDuration - chordSoundDuration;
       const step = isChordExercise ? chordWholeDuration : secondsPerBeat;
       const baseDuration = isChordExercise ? chordSoundDuration : step * 0.92;
-      const tailSeconds = isChordExercise
-        ? (chordGapMode === "noSilence" ? 0.025 : chordGapDuration * 0.62)
+      const fadeTailSeconds = isChordExercise
+        ? (chordGapMode === "noSilence" ? Math.min(0.035, chordWholeDuration * 0.008) : chordGapDuration * 0.56)
         : secondsPerBeat * 0.18;
       playbackLoopRef.current = Boolean(loopFromSelection && isChordExercise);
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
@@ -3131,7 +3141,7 @@ export default function IntervalTrainerPage() {
         eventNotes.forEach(({ note, instrument: instrumentConfig }) => {
           const config = instrumentConfig ?? selectedInstrument;
           const sfInstrument = sfMap.get(config.value);
-          const duration = config?.sustain ? Math.max(0.24, baseDuration + tailSeconds) : Math.max(0.2, baseDuration + tailSeconds * 0.65);
+          const duration = config?.sustain ? Math.max(0.24, baseDuration + fadeTailSeconds) : Math.max(0.2, baseDuration + fadeTailSeconds * 0.65);
           if (sfInstrument) {
             const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
             activePlayersRef.current.push(player);
@@ -3151,7 +3161,7 @@ export default function IntervalTrainerPage() {
             setIsPlaying(false);
           }
         }
-      }, scheduledEvents.length * step * 1000 + tailSeconds * 1000 + 650);
+      }, scheduledEvents.length * step * 1000 + fadeTailSeconds * 1000 + 650);
     } catch (error) {
       console.error("Error al reproducir:", error);
       if (sessionId === playbackSessionRef.current) setIsPlaying(false);
@@ -3195,7 +3205,7 @@ export default function IntervalTrainerPage() {
       const chordWholeDuration = secondsPerBeat * 4;
       const chordPreviewDuration = chordGapMode === "noSilence"
         ? chordWholeDuration
-        : chordWholeDuration * (13 / 14) + Math.min(0.24, (chordWholeDuration / 14) * 0.62);
+        : chordWholeDuration * (13 / 14) + (chordWholeDuration / 14) * 0.56;
       const start = ctx.currentTime + 0.06;
       items.forEach((item, index) => {
         const note = item.note;
