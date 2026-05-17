@@ -3146,14 +3146,17 @@ export default function IntervalTrainerPage() {
     if (!ctx || !sfInstrument || !note) return null;
 
     const eventDuration = Math.max(0.08, Number(options.eventDuration ?? 1));
-    const mainDuration = clamp(Number(options.mainDuration ?? eventDuration * 0.9), 0.04, eventDuration);
-    const releaseDuration = Math.max(0.012, Number(options.releaseDuration ?? Math.max(0.02, eventDuration - mainDuration)));
+    const silentTailDuration = Math.max(0, Number(options.silentTailDuration ?? 0));
+    const audibleWindow = Math.max(0.05, eventDuration - silentTailDuration);
+    const releaseDuration = clamp(Number(options.releaseDuration ?? Math.max(0.02, audibleWindow * 0.1)), 0.012, Math.max(0.012, audibleWindow - 0.02));
+    const mainDuration = clamp(Number(options.mainDuration ?? audibleWindow - releaseDuration), 0.04, Math.max(0.04, audibleWindow - releaseDuration));
     const peakGain = Math.max(0.0001, Number(options.gain ?? 1));
     const isChordEvent = Boolean(options.isChordEvent);
-    const stopPadding = isChordEvent ? Math.max(0.16, releaseDuration * 0.5) : 0.08;
+    const stopPadding = isChordEvent ? Math.max(0.14, releaseDuration * 0.35) : 0.08;
     const attack = isChordEvent ? Math.min(0.03, Math.max(0.012, eventDuration * 0.004)) : 0.01;
-    const fadeStart = startTime + Math.max(attack + 0.02, Math.min(mainDuration, eventDuration - 0.012));
-    const fadeEnd = startTime + eventDuration;
+    const fadeStart = startTime + Math.max(attack + 0.02, Math.min(mainDuration, audibleWindow - 0.012));
+    const fadeEnd = startTime + Math.min(eventDuration, mainDuration + releaseDuration);
+    const playerDuration = Math.max(0.08, fadeEnd - startTime + stopPadding);
     const outputGain = ctx.createGain();
     let cleanupId = null;
 
@@ -3165,7 +3168,7 @@ export default function IntervalTrainerPage() {
     outputGain.connect(getAudioOutput(ctx));
 
     const player = sfInstrument.play(noteNameForSoundFont(note.midi), startTime, {
-      duration: eventDuration + stopPadding,
+      duration: playerDuration,
       gain: 1,
       destination: outputGain,
       attack: 0.001,
@@ -3207,15 +3210,17 @@ export default function IntervalTrainerPage() {
       const ctx = await ensureAudioContext();
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
       // En acordes, el tempo se entiende como negra: la redonda completa dura 4 negras.
-      // Ya no hacemos un corte de silencio. En modo "con salida", el evento completo
-      // conserva la duración de la redonda y el último 10% se usa como disipación suave.
-      // a 43 BPM => evento total ≈ 5.58 s; ataque/sostén ≈ 5.02 s; salida ≈ 0.56 s.
+      // Con silencio: cuerpo + salida suave + hueco real, todo dentro de la redonda.
+      // Sin silencio: cuerpo + salida suave, sin hueco añadido.
+      // A 43 BPM => evento total ≈ 5.58 s; salida ≈ 0.56 s; silencio real ≈ 0.39 s.
       const chordWholeDuration = secondsPerBeat * 4;
-      const chordReleaseDuration = chordGapMode === "noSilence" ? Math.min(0.035, chordWholeDuration * 0.008) : chordWholeDuration * 0.10;
-      const chordSoundDuration = chordWholeDuration - chordReleaseDuration;
+      const chordReleaseDuration = chordWholeDuration * 0.10;
+      const chordSilenceDuration = chordGapMode === "withSilence" ? chordWholeDuration * 0.07 : 0;
+      const chordSoundDuration = Math.max(0.12, chordWholeDuration - chordReleaseDuration - chordSilenceDuration);
+      const chordAudibleDuration = chordSoundDuration + chordReleaseDuration;
       const step = isChordExercise ? chordWholeDuration : secondsPerBeat;
-      const baseDuration = isChordExercise ? chordWholeDuration : step * 0.92;
-      const fadeTailSeconds = isChordExercise ? chordReleaseDuration : secondsPerBeat * 0.18;
+      const baseDuration = isChordExercise ? chordAudibleDuration : step * 0.92;
+      const fadeTailSeconds = isChordExercise ? chordReleaseDuration + chordSilenceDuration : secondsPerBeat * 0.18;
       playbackLoopRef.current = Boolean(loopFromSelection && isChordExercise);
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
       const instrumentConfigs = isChordExercise
@@ -3298,7 +3303,7 @@ export default function IntervalTrainerPage() {
           const config = instrumentConfig ?? selectedInstrument;
           const sfInstrument = sfMap.get(config.value);
           const duration = isChordExercise
-            ? chordWholeDuration
+            ? chordAudibleDuration
             : (config?.sustain ? Math.max(0.24, baseDuration + fadeTailSeconds) : Math.max(0.2, baseDuration + fadeTailSeconds * 0.65));
           const release = isChordExercise ? chordReleaseDuration : Math.max(0.04, fadeTailSeconds * 0.6);
           if (sfInstrument) {
@@ -3307,6 +3312,7 @@ export default function IntervalTrainerPage() {
                 eventDuration: chordWholeDuration,
                 mainDuration: chordSoundDuration,
                 releaseDuration: chordReleaseDuration,
+                silentTailDuration: chordSilenceDuration,
                 gain,
                 isChordEvent: true,
               });
@@ -3380,14 +3386,16 @@ export default function IntervalTrainerPage() {
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
       const isChordPreview = items.length > 1 && items.some((item) => ["lower", "middle", "upper"].includes(item.voice));
       const chordWholeDuration = secondsPerBeat * 4;
-      const chordPreviewReleaseDuration = chordGapMode === "noSilence" ? Math.min(0.035, chordWholeDuration * 0.008) : chordWholeDuration * 0.10;
-      const chordPreviewSoundDuration = chordWholeDuration - chordPreviewReleaseDuration;
+      const chordPreviewReleaseDuration = chordWholeDuration * 0.10;
+      const chordPreviewSilenceDuration = chordGapMode === "withSilence" ? chordWholeDuration * 0.07 : 0;
+      const chordPreviewSoundDuration = Math.max(0.12, chordWholeDuration - chordPreviewReleaseDuration - chordPreviewSilenceDuration);
       const chordPreviewDuration = chordWholeDuration;
+      const chordPreviewAudibleDuration = chordPreviewSoundDuration + chordPreviewReleaseDuration;
       const start = ctx.currentTime + 0.06;
       items.forEach((item, index) => {
         const note = item.note;
         const config = configs[index] ?? selectedInstrument;
-        const duration = isChordPreview ? chordPreviewDuration : (config?.sustain ? 1.15 : 0.95);
+        const duration = isChordPreview ? chordPreviewAudibleDuration : (config?.sustain ? 1.15 : 0.95);
         const sfInstrument = sfMap.get(config.value);
         if (sfInstrument) {
           if (isChordPreview) {
@@ -3395,6 +3403,7 @@ export default function IntervalTrainerPage() {
               eventDuration: chordPreviewDuration,
               mainDuration: chordPreviewSoundDuration,
               releaseDuration: chordPreviewReleaseDuration,
+              silentTailDuration: chordPreviewSilenceDuration,
               gain,
               isChordEvent: true,
             });
@@ -3748,7 +3757,7 @@ export default function IntervalTrainerPage() {
                       <SelectionChip active={chordEntryMode === "gradual"} onClick={() => setChordEntryMode("gradual")}>Entrada gradual</SelectionChip>
                       <SelectionChip active={chordEntryMode === "direct"} onClick={() => setChordEntryMode("direct")}>Entrada directa</SelectionChip>
                       <SelectionChip active={chordRepeat} onClick={() => setChordRepeat((current) => !current)}>{chordRepeat ? "Con repetición" : "Sin repetición"}</SelectionChip>
-                      <SelectionChip active={chordGapMode === "withSilence"} onClick={() => setChordGapMode((current) => current === "withSilence" ? "noSilence" : "withSilence")}>{chordGapMode === "withSilence" ? "Con salida" : "Sin salida"}</SelectionChip>
+                      <SelectionChip active={chordGapMode === "withSilence"} onClick={() => setChordGapMode((current) => current === "withSilence" ? "noSilence" : "withSilence")}>{chordGapMode === "withSilence" ? "Con silencio" : "Sin silencio"}</SelectionChip>
                     </div>
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
