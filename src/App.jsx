@@ -1184,14 +1184,43 @@ function adjacentVoicesWithinOctave(chord) {
   return chord.middle.midi - chord.lower.midi <= 12 && chord.upper.midi - chord.middle.midi <= 12;
 }
 
+const CHORD_VOICES = ["lower", "middle", "upper"];
+const CHORD_VOICE_LABELS = { lower: "bajo", middle: "medio", upper: "alto" };
+
+function chordVoiceLabel(voice) {
+  return CHORD_VOICE_LABELS[voice] ?? voice;
+}
+
+function shuffledChordVoiceOrder() {
+  return [...CHORD_VOICES].sort(() => Math.random() - 0.5);
+}
+
+function getChordEntryOrder(chord) {
+  const seen = new Set();
+  const order = [];
+  (Array.isArray(chord?.entryOrder) ? chord.entryOrder : CHORD_VOICES).forEach((voice) => {
+    if (!CHORD_VOICES.includes(voice) || seen.has(voice)) return;
+    seen.add(voice);
+    order.push(voice);
+  });
+  CHORD_VOICES.forEach((voice) => {
+    if (!seen.has(voice)) order.push(voice);
+  });
+  return order;
+}
+
 function chordSignature(chord) {
   if (!chord?.lower || !chord?.middle || !chord?.upper) return '';
   return [chord.lower.midi, chord.middle.midi, chord.upper.midi].join('-');
 }
 
-function chordPitchClassSignature(chord) {
+function chordModelSignature(chord, allowedIntervalKeys = []) {
   if (!chord?.lower || !chord?.middle || !chord?.upper) return '';
-  return [chord.lower.midi % 12, chord.middle.midi % 12, chord.upper.midi % 12].join('-');
+  const firstKey = intervalKeyBetweenNotes(chord.lower, chord.middle, allowedIntervalKeys);
+  const secondKey = intervalKeyBetweenNotes(chord.middle, chord.upper, allowedIntervalKeys);
+  const firstSize = chord.middle.midi - chord.lower.midi;
+  const secondSize = chord.upper.midi - chord.middle.midi;
+  return `${firstKey ?? firstSize}:${secondKey ?? secondSize}`;
 }
 
 function chordIntervals(chord, allowedIntervalKeys = []) {
@@ -1322,25 +1351,33 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
   const linkModes = sanitizeChordLinkModes(selectedLinkModes);
   const chords = [];
   const signatureCounts = new Map();
-  const pitchClassCounts = new Map();
-  const maxRepeats = safeCount < 4 ? 1 : 2;
+  const modelCounts = new Map();
+  const maxModelRepeats = safeCount <= 3 ? 1 : (safeCount <= 8 ? 2 : 3);
 
-  const canUseChord = (candidate) => {
+  const canUseChord = (candidate, options = {}) => {
     if (!candidate) return false;
     const sig = chordSignature(candidate);
-    const pcSig = chordPitchClassSignature(candidate);
-    if (!sig || !pcSig) return false;
-    if ((signatureCounts.get(sig) ?? 0) >= maxRepeats) return false;
-    if ((pitchClassCounts.get(pcSig) ?? 0) >= maxRepeats) return false;
+    const modelSig = chordModelSignature(candidate, intervals);
+    if (!sig || !modelSig) return false;
+    // No repetimos exactamente el mismo acorde con las mismas alturas.
+    if ((signatureCounts.get(sig) ?? 0) > 0) return false;
+    // El mismo modelo interválico puede reaparecer transportado, pero con límite.
+    if (!options.relaxModelLimit && (modelCounts.get(modelSig) ?? 0) >= maxModelRepeats) return false;
     return true;
   };
 
   const registerChord = (candidate) => {
     const sig = chordSignature(candidate);
-    const pcSig = chordPitchClassSignature(candidate);
+    const modelSig = chordModelSignature(candidate, intervals);
     signatureCounts.set(sig, (signatureCounts.get(sig) ?? 0) + 1);
-    pitchClassCounts.set(pcSig, (pitchClassCounts.get(pcSig) ?? 0) + 1);
+    modelCounts.set(modelSig, (modelCounts.get(modelSig) ?? 0) + 1);
   };
+
+  const decorateChord = (candidate, fallbackLinkMode = null) => ({
+    ...candidate,
+    linkMode: candidate?.linkMode ?? fallbackLinkMode,
+    entryOrder: shuffledChordVoiceOrder(),
+  });
 
   let current = null;
   for (let attempt = 0; attempt < 180 && !current; attempt += 1) {
@@ -1348,7 +1385,8 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
     if (canUseChord(maybe)) current = maybe;
   }
   current = current ?? makeRandomChord(clef, intervals);
-  chords.push({ ...current, linkMode: 'inicio' });
+  current = decorateChord(current, 'inicio');
+  chords.push(current);
   registerChord(current);
 
   for (let i = 1; i < safeCount; i += 1) {
@@ -1368,12 +1406,18 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
       if (next) break;
     }
     if (!next) {
-      for (let attempt = 0; attempt < 120 && !next; attempt += 1) {
+      for (let attempt = 0; attempt < 160 && !next; attempt += 1) {
         const candidate = { ...makeRandomChord(clef, intervals, false), linkMode: 'libre' };
         if (canUseChord(candidate)) next = candidate;
       }
     }
-    next = next ?? { ...makeRandomChord(clef, intervals, false), linkMode: 'libre' };
+    if (!next) {
+      for (let attempt = 0; attempt < 220 && !next; attempt += 1) {
+        const candidate = { ...makeRandomChord(clef, intervals, false), linkMode: 'libre' };
+        if (canUseChord(candidate, { relaxModelLimit: true })) next = candidate;
+      }
+    }
+    next = decorateChord(next ?? { ...makeRandomChord(clef, intervals, false), linkMode: 'libre' }, 'libre');
     chords.push(next);
     registerChord(next);
     current = next;
@@ -1387,23 +1431,26 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
     mode: 'chords',
     intervalKeys: intervals,
     linkModes,
-    startNote: chords[0]?.lower?.label ?? '—',
+    startNote: chords[0]?.[getChordEntryOrder(chords[0])[0]]?.label ?? chords[0]?.lower?.label ?? '—',
   };
 }
 
 function makeInitialAttempts(exercise, harmonicResponseMode = DEFAULT_HARMONIC_RESPONSE_MODE) {
   if (exercise?.type === "chords") {
-    return (exercise.chords ?? []).map((chord, index) => ({
-      lower: chord.lower,
-      middle: chord.middle,
-      upper: chord.upper,
-      lowerVisible: index === 0,
-      middleVisible: false,
-      upperVisible: false,
-      lowerStatus: index === 0 ? "given" : null,
-      middleStatus: null,
-      upperStatus: null,
-    }));
+    return (exercise.chords ?? []).map((chord, index) => {
+      const firstVoice = getChordEntryOrder(chord)[0] ?? "lower";
+      return {
+        lower: chord.lower,
+        middle: chord.middle,
+        upper: chord.upper,
+        lowerVisible: index === 0 && firstVoice === "lower",
+        middleVisible: index === 0 && firstVoice === "middle",
+        upperVisible: index === 0 && firstVoice === "upper",
+        lowerStatus: index === 0 && firstVoice === "lower" ? "given" : null,
+        middleStatus: index === 0 && firstVoice === "middle" ? "given" : null,
+        upperStatus: index === 0 && firstVoice === "upper" ? "given" : null,
+      };
+    });
   }
   if (exercise?.type === "harmonic") {
     return (exercise.pairs ?? []).map((pair, index) => ({
@@ -1437,15 +1484,21 @@ function nextHarmonicStepAfter(step, exercise, harmonicResponseMode) {
 
 function firstChordStep(exercise) {
   if (!exercise?.chords?.length) return null;
-  return { chordIndex: 0, voice: "middle" };
+  const firstOrder = getChordEntryOrder(exercise.chords[0]);
+  return { chordIndex: 0, voice: firstOrder[1] ?? "middle" };
 }
 
 function nextChordStepAfter(step, exercise) {
   if (!step || !exercise?.chords?.length) return null;
-  if (step.voice === "lower") return { chordIndex: step.chordIndex, voice: "middle" };
-  if (step.voice === "middle") return { chordIndex: step.chordIndex, voice: "upper" };
+  const currentOrder = getChordEntryOrder(exercise.chords[step.chordIndex]);
+  const currentPosition = currentOrder.indexOf(step.voice);
+  if (currentPosition >= 0 && currentPosition < currentOrder.length - 1) {
+    return { chordIndex: step.chordIndex, voice: currentOrder[currentPosition + 1] };
+  }
   const nextChord = step.chordIndex + 1;
-  return nextChord < exercise.chords.length ? { chordIndex: nextChord, voice: "lower" } : null;
+  if (nextChord >= exercise.chords.length) return null;
+  const nextOrder = getChordEntryOrder(exercise.chords[nextChord]);
+  return { chordIndex: nextChord, voice: nextOrder[0] ?? "lower" };
 }
 
 function getExerciseTuningNotes(exercise) {
@@ -1500,10 +1553,13 @@ function getPlaybackEventDescriptors(exercise, chordEntryMode = DEFAULT_CHORD_EN
     (exercise.chords ?? []).forEach((chord, chordIndex) => {
       const n = chordIndex + 1;
       if (chordEntryMode === "gradual" && chordIndex === 0) {
-        labels.push({ label: `Acorde ${n}: bajo`, chordIndex, kind: "lower" });
-        if (chordRepeat) labels.push({ label: `Acorde ${n}: bajo · rep.`, chordIndex, kind: "lowerRepeat" });
-        labels.push({ label: `Acorde ${n}: bajo + medio`, chordIndex, kind: "partial" });
-        if (chordRepeat) labels.push({ label: `Acorde ${n}: bajo + medio · rep.`, chordIndex, kind: "partialRepeat" });
+        const order = getChordEntryOrder(chord);
+        const firstLabel = chordVoiceLabel(order[0]);
+        const partialLabel = `${chordVoiceLabel(order[0])} + ${chordVoiceLabel(order[1])}`;
+        labels.push({ label: `Acorde ${n}: ${firstLabel}`, chordIndex, kind: "single" });
+        if (chordRepeat) labels.push({ label: `Acorde ${n}: ${firstLabel} · rep.`, chordIndex, kind: "singleRepeat" });
+        labels.push({ label: `Acorde ${n}: ${partialLabel}`, chordIndex, kind: "partial" });
+        if (chordRepeat) labels.push({ label: `Acorde ${n}: ${partialLabel} · rep.`, chordIndex, kind: "partialRepeat" });
         labels.push({ label: `Acorde ${n}: completo`, chordIndex, kind: "full" });
         if (chordRepeat) labels.push({ label: `Acorde ${n}: completo · rep.`, chordIndex, kind: "fullRepeat" });
       } else {
@@ -1737,34 +1793,23 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
             });
             if (chordEntryMode !== "gradual" || !chordSlots.length) return chordSlots;
             const first = chordSlots[0];
+            const firstOrder = getChordEntryOrder(exercise?.chords?.[0] ?? first);
+            const makeGradualSlot = (visibleVoices, statusVoice, visualKind) => ({
+              lower: first.lower,
+              middle: first.middle,
+              upper: first.upper,
+              lowerVisible: visibleVoices.includes("lower"),
+              middleVisible: visibleVoices.includes("middle"),
+              upperVisible: visibleVoices.includes("upper"),
+              lowerStatus: statusVoice === "lower" ? first.lowerStatus : null,
+              middleStatus: statusVoice === "middle" ? first.middleStatus : null,
+              upperStatus: statusVoice === "upper" ? first.upperStatus : null,
+              visualKind,
+            });
             return [
-              {
-                lower: first.lower,
-                lowerVisible: first.lowerVisible,
-                lowerStatus: first.lowerStatus,
-                visualKind: "lower",
-              },
-              {
-                lower: first.lower,
-                middle: first.middle,
-                lowerVisible: first.lowerVisible,
-                middleVisible: first.middleVisible,
-                lowerStatus: null,
-                middleStatus: first.middleStatus,
-                visualKind: "partial",
-              },
-              {
-                lower: first.lower,
-                middle: first.middle,
-                upper: first.upper,
-                lowerVisible: first.lowerVisible,
-                middleVisible: first.middleVisible,
-                upperVisible: first.upperVisible,
-                lowerStatus: null,
-                middleStatus: null,
-                upperStatus: first.upperStatus,
-                visualKind: "full",
-              },
+              makeGradualSlot(firstOrder.slice(0, 1), firstOrder[0], "single"),
+              makeGradualSlot(firstOrder.slice(0, 2), firstOrder[1], "partial"),
+              makeGradualSlot(firstOrder.slice(0, 3), firstOrder[2], "full"),
               ...chordSlots.slice(1),
             ];
           })()
@@ -1808,11 +1853,11 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
             ? Math.max(Math.min(availableWidth, 360), naturalWidth)
             : Math.min(availableWidth, Math.max(naturalWidth, Math.min(availableWidth, 520)));
         width = Math.max(compact ? 260 : 330, Math.round(width));
-        const height = compact ? 158 : 168;
+        const height = compact ? 190 : 204;
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
         const context = renderer.getContext();
-        const stave = new Stave(compact ? 8 : 14, compact ? 30 : 34, width - (compact ? 16 : 28));
+        const stave = new Stave(compact ? 8 : 14, compact ? 52 : 58, width - (compact ? 16 : 28));
         if (VF.Barline?.type?.END && typeof stave.setEndBarType === "function") {
           stave.setEndBarType(VF.Barline.type.END);
         }
@@ -1893,7 +1938,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
 
           const drawFinalDoubleBar = () => {
             const finalX = (compact ? 8 : 14) + (width - (compact ? 16 : 28));
-            const topY = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : (compact ? 30 : 34);
+            const topY = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : (compact ? 52 : 58);
             const bottomY = typeof stave.getYForLine === "function" ? stave.getYForLine(4) : topY + 40;
             const cover = document.createElementNS(ns, "rect");
             cover.setAttribute("x", String(finalX - 14));
@@ -1996,32 +2041,50 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
             } else {
               const group = noteGroups[index];
               const groupYs = [];
-              group.forEach((item, groupIndex) => {
-                const y = ys[groupIndex] ?? ys[0] ?? 92;
-                if (item.visible !== false) {
-                  groupYs.push(y);
-                  if (isChordExercise) {
-                    const staffTop = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : 34;
-                    const staffBottom = typeof stave.getYForLine === "function" ? stave.getYForLine(4) : 74;
-                    const fixedPlacementY = item.role === "lower" ? staffBottom + 32 : (item.role === "middle" ? staffTop - 24 : staffTop - 46);
-                    if (item.status === "correct" || item.status === "wrong") {
-                      const color = item.status === "correct" ? "#16a34a" : "#dc2626";
-                      const mark = document.createElementNS(ns, "text");
-                      mark.setAttribute("x", String(noteX));
-                      mark.setAttribute("y", String(fixedPlacementY));
-                      mark.setAttribute("text-anchor", "middle");
-                      mark.setAttribute("dominant-baseline", "middle");
-                      mark.setAttribute("font-size", item.role === "middle" ? "17" : "18");
-                      mark.setAttribute("font-weight", "800");
-                      mark.setAttribute("fill", color);
-                      mark.textContent = item.status === "correct" ? "✓" : "×";
-                      svg.appendChild(mark);
-                    }
-                  } else {
-                    drawMark(item.status, y, item.role === "lower" ? "below" : "above");
-                  }
-                }
-              });
+              const visibleGroup = group.map((item, groupIndex) => ({
+                ...item,
+                y: ys[groupIndex] ?? ys[0] ?? 92,
+              })).filter((item) => item.visible !== false);
+              visibleGroup.forEach((item) => groupYs.push(item.y));
+
+              if (isChordExercise) {
+                const staffTop = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : 34;
+                const staffBottom = typeof stave.getYForLine === "function" ? stave.getYForLine(4) : 74;
+                const highestNoteY = groupYs.length ? Math.min(...groupYs) : staffTop;
+                const lowestNoteY = groupYs.length ? Math.max(...groupYs) : staffBottom;
+                const topBaseY = Math.min(staffTop - 22, highestNoteY - 30);
+                const bottomMarkY = Math.max(staffBottom + 32, lowestNoteY + 34);
+                const topStatusItems = visibleGroup
+                  .filter((item) => item.role !== "lower" && (item.status === "correct" || item.status === "wrong"))
+                  .sort((a, b) => (a.role === "upper" ? -1 : 1) - (b.role === "upper" ? -1 : 1));
+
+                const drawChordMark = (item, y) => {
+                  const color = item.status === "correct" ? "#16a34a" : "#dc2626";
+                  const mark = document.createElementNS(ns, "text");
+                  mark.setAttribute("x", String(noteX));
+                  mark.setAttribute("y", String(y));
+                  mark.setAttribute("text-anchor", "middle");
+                  mark.setAttribute("dominant-baseline", "middle");
+                  mark.setAttribute("font-size", item.role === "middle" ? "17" : "18");
+                  mark.setAttribute("font-weight", "800");
+                  mark.setAttribute("fill", color);
+                  mark.textContent = item.status === "correct" ? "✓" : "×";
+                  svg.appendChild(mark);
+                };
+
+                visibleGroup.forEach((item) => {
+                  if (item.role !== "lower" || (item.status !== "correct" && item.status !== "wrong")) return;
+                  drawChordMark(item, bottomMarkY);
+                });
+                topStatusItems.forEach((item, slotIndex) => {
+                  const y = topBaseY - (topStatusItems.length - 1 - slotIndex) * 24;
+                  drawChordMark(item, y);
+                });
+              } else {
+                visibleGroup.forEach((item) => {
+                  drawMark(item.status, item.y, item.role === "lower" ? "below" : "above");
+                });
+              }
               const groupNotes = isChordExercise
                 ? [entry.lower, entry.middle, entry.upper].filter(Boolean).map((note, i) => ({ note, voice: ["lower", "middle", "upper"][i] }))
                 : group.filter((item) => item.visible !== false).map((item) => item.note).filter(Boolean);
@@ -2977,13 +3040,15 @@ export default function IntervalTrainerPage() {
       const ctx = await ensureAudioContext();
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
       const chordWholeDuration = secondsPerBeat * 4;
-      const chordGapDuration = chordGapMode === "noSilence" ? 0 : chordWholeDuration / 14;
+      const chordGapRatioToSound = 0.08;
+      const chordSoundDuration = chordGapMode === "noSilence"
+        ? chordWholeDuration
+        : chordWholeDuration / (1 + chordGapRatioToSound);
+      const chordGapDuration = chordGapMode === "noSilence" ? 0 : chordWholeDuration - chordSoundDuration;
       const step = isChordExercise ? chordWholeDuration : secondsPerBeat;
-      const baseDuration = isChordExercise
-        ? (chordGapMode === "noSilence" ? chordWholeDuration : chordWholeDuration * (13 / 14))
-        : step * 0.92;
+      const baseDuration = isChordExercise ? chordSoundDuration : step * 0.92;
       const tailSeconds = isChordExercise
-        ? (chordGapMode === "noSilence" ? 0 : Math.min(0.24, chordGapDuration * 0.62))
+        ? (chordGapMode === "noSilence" ? 0.025 : chordGapDuration * 0.62)
         : secondsPerBeat * 0.18;
       playbackLoopRef.current = Boolean(loopFromSelection && isChordExercise);
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
@@ -3017,19 +3082,26 @@ export default function IntervalTrainerPage() {
 
       if (isChordExercise) {
         (exerciseToPlay?.chords ?? []).forEach((chord, chordIndex) => {
-          const lower = { note: chord.lower, instrument: instrumentConfigs.lower, voice: "lower" };
-          const middle = { note: chord.middle, instrument: instrumentConfigs.middle, voice: "middle" };
-          const upper = { note: chord.upper, instrument: instrumentConfigs.upper, voice: "upper" };
+          const byVoice = {
+            lower: { note: chord.lower, instrument: instrumentConfigs.lower, voice: "lower" },
+            middle: { note: chord.middle, instrument: instrumentConfigs.middle, voice: "middle" },
+            upper: { note: chord.upper, instrument: instrumentConfigs.upper, voice: "upper" },
+          };
+          const order = getChordEntryOrder(chord);
+          const fullChord = CHORD_VOICES.map((voice) => byVoice[voice]).filter((item) => item.note);
           if (chordEntryMode === "gradual" && chordIndex === 0) {
-            events.push([lower]);
-            if (chordRepeat) events.push([lower]);
-            events.push([lower, middle]);
-            if (chordRepeat) events.push([lower, middle]);
-            events.push([lower, middle, upper]);
-            if (chordRepeat) events.push([lower, middle, upper]);
+            const single = order.slice(0, 1).map((voice) => byVoice[voice]).filter((item) => item.note);
+            const partial = order.slice(0, 2).map((voice) => byVoice[voice]).filter((item) => item.note);
+            const full = order.slice(0, 3).map((voice) => byVoice[voice]).filter((item) => item.note);
+            events.push(single);
+            if (chordRepeat) events.push(single);
+            events.push(partial);
+            if (chordRepeat) events.push(partial);
+            events.push(full);
+            if (chordRepeat) events.push(full);
           } else {
-            events.push([lower, middle, upper]);
-            if (chordRepeat) events.push([lower, middle, upper]);
+            events.push(fullChord);
+            if (chordRepeat) events.push(fullChord);
           }
         });
       } else if (isHarmonic) {
