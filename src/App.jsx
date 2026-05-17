@@ -2669,7 +2669,7 @@ function TunerPanel({ notes = [], visible = false }) {
   const modeRef = useRef("study");
   const targetIndexRef = useRef(0);
   const notesRef = useRef(notes);
-  const holdSecondsRef = useRef(2);
+  const holdSecondsRef = useRef(1);
   const lastCentsRef = useRef(null);
 
   const [isListening, setIsListening] = useState(false);
@@ -2678,7 +2678,7 @@ function TunerPanel({ notes = [], visible = false }) {
   const [detectedHz, setDetectedHz] = useState(null);
   const [detectedLabel, setDetectedLabel] = useState("—");
   const [cents, setCents] = useState(null);
-  const [holdSeconds, setHoldSeconds] = useState(2);
+  const [holdSeconds, setHoldSeconds] = useState(1);
   const [holdProgress, setHoldProgress] = useState(0);
   const [completedFlash, setCompletedFlash] = useState(false);
 
@@ -2909,15 +2909,19 @@ function TunerPanel({ notes = [], visible = false }) {
           <button type="button" onClick={() => setMode("study")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${mode === "study" ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-50"}`}>Estudio</button>
           <button type="button" onClick={() => setMode("free")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${mode === "free" ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-50"}`}>Libre</button>
           {mode === "study" ? <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">{targetIndex + 1}/{notes.length}</span> : null}
-          {mode === "study" && detectedLabel !== "—" ? (
-            <span className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700 shadow-sm">
-              <span className="text-zinc-400">Detectada</span>
-              <span className="tabular-nums text-zinc-950">{detectedLabel}</span>
-            </span>
-          ) : null}
         </div>
 
         <div className="text-center">
+          {mode === "study" ? (
+            <div className="mb-1 flex min-h-[1.55rem] items-center justify-center">
+              {detectedLabel !== "—" ? (
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm ${samePitchClass ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-zinc-200 bg-white text-zinc-700"}`}>
+                  <span className="text-[9px] font-bold uppercase tracking-[0.16em] text-zinc-400">detectada</span>
+                  <span className="tabular-nums text-zinc-950">{detectedLabel}</span>
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           {mode === "study" ? (
             <div className="flex items-center justify-center gap-2">
               <button type="button" onClick={() => setTargetManually(targetIndexRef.current - 1)} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
