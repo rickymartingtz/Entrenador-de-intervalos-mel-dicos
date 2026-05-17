@@ -2729,6 +2729,7 @@ export default function IntervalTrainerPage() {
   const savedMarks = useMemo(() => (typeof window !== "undefined" ? initialMarks() : []), []);
   const audioContextRef = useRef(null);
   const soundfontCacheRef = useRef(new Map());
+  const audioOutputRef = useRef(null);
   const activeFallbackNodesRef = useRef([]);
   const activePlayersRef = useRef([]);
   const playbackTimeoutRef = useRef(null);
@@ -2931,6 +2932,43 @@ export default function IntervalTrainerPage() {
     setIsPlaying(false);
   }, [stopAllAudio]);
 
+  const getAudioOutput = useCallback((ctx) => {
+    const current = audioOutputRef.current;
+    if (current?.context === ctx && current?.input) return current.input;
+
+    // Salida acústica común: mantiene el sonido directo limpio y añade una cola
+    // muy corta/de baja ganancia para que el apagado de los samples no produzca
+    // un corte seco al inicio de la respiración entre acordes.
+    const input = ctx.createGain();
+    const dry = ctx.createGain();
+    const delay = ctx.createDelay(0.7);
+    const feedback = ctx.createGain();
+    const wetFilter = ctx.createBiquadFilter();
+    const wet = ctx.createGain();
+
+    input.gain.value = 1;
+    dry.gain.value = 0.96;
+    delay.delayTime.value = 0.075;
+    feedback.gain.value = 0.14;
+    wet.gain.value = 0.055;
+    wetFilter.type = "lowpass";
+    wetFilter.frequency.value = 2600;
+    wetFilter.Q.value = 0.55;
+
+    input.connect(dry);
+    dry.connect(ctx.destination);
+
+    input.connect(delay);
+    delay.connect(wetFilter);
+    wetFilter.connect(wet);
+    wet.connect(ctx.destination);
+    delay.connect(feedback);
+    feedback.connect(delay);
+
+    audioOutputRef.current = { context: ctx, input, dry, delay, feedback, wetFilter, wet };
+    return input;
+  }, []);
+
   const getSoundfontInstrument = useCallback(async (ctx, instrumentConfig) => {
     if (!instrumentConfig?.soundfont) return null;
     const cacheKey = instrumentConfig.soundfont;
@@ -2938,11 +2976,12 @@ export default function IntervalTrainerPage() {
     const sfInstrument = await Soundfont.instrument(ctx, instrumentConfig.soundfont, {
       format: "mp3",
       soundfont: SOUNDFONT_LIBRARY,
+      destination: getAudioOutput(ctx),
       nameToUrl: (name, sf, format) => `${SOUNDFONT_BASE_URL}/${sf}/${name}-${format}.js`,
     });
     soundfontCacheRef.current.set(cacheKey, sfInstrument);
     return sfInstrument;
-  }, []);
+  }, [getAudioOutput]);
 
   const createFallbackVoice = useCallback((ctx, freq, fallbackType, startTime, duration, volumeLevel) => {
     const volumeNorm = (clamp(volumeLevel, MIN_VOLUME, MAX_VOLUME) / 100) * INTERNAL_VOLUME_BOOST;
@@ -3044,14 +3083,64 @@ export default function IntervalTrainerPage() {
       masterGain.gain.setValueAtTime(peak, sustainEnd);
     }
     masterGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
-    masterGain.connect(ctx.destination);
+    masterGain.connect(getAudioOutput(ctx));
 
     oscillators.forEach((osc) => {
       osc.start(startTime);
       osc.stop(startTime + duration + 0.06);
     });
     activeFallbackNodesRef.current.push({ oscillators, gains, filters, masterGain });
-  }, []);
+  }, [getAudioOutput]);
+
+  const createResonanceTail = useCallback((ctx, freq, startTime, duration, volumeLevel) => {
+    if (!Number.isFinite(freq) || !Number.isFinite(startTime) || !Number.isFinite(duration) || duration <= 0) return;
+
+    const volumeNorm = (clamp(volumeLevel, MIN_VOLUME, MAX_VOLUME) / 100) * INTERNAL_VOLUME_BOOST;
+    const masterGain = ctx.createGain();
+    const lowPass = ctx.createBiquadFilter();
+    const oscillators = [];
+    const gains = [];
+    const filters = [lowPass];
+
+    lowPass.type = "lowpass";
+    lowPass.frequency.setValueAtTime(1850, startTime);
+    lowPass.Q.setValueAtTime(0.45, startTime);
+    lowPass.connect(masterGain);
+
+    const routeTailOscillator = ({ type, multiplier = 1, detune = 0, level = 1 }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq * multiplier, startTime);
+      osc.detune.setValueAtTime(detune, startTime);
+      gain.gain.setValueAtTime(level, startTime);
+      osc.connect(gain);
+      gain.connect(lowPass);
+      oscillators.push(osc);
+      gains.push(gain);
+      return osc;
+    };
+
+    routeTailOscillator({ type: "sine", detune: -2, level: 0.82 });
+    routeTailOscillator({ type: "triangle", detune: 2, level: 0.28 });
+
+    const peak = Math.min(0.12, 0.018 * volumeNorm);
+    const attack = Math.min(0.12, Math.max(0.045, duration * 0.24));
+    const hold = Math.min(0.1, Math.max(0.02, duration * 0.18));
+    const endTime = startTime + duration;
+
+    masterGain.gain.setValueAtTime(0.0001, startTime);
+    masterGain.gain.linearRampToValueAtTime(peak, startTime + attack);
+    masterGain.gain.exponentialRampToValueAtTime(Math.max(0.0004, peak * 0.34), Math.min(endTime - 0.02, startTime + attack + hold));
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, endTime);
+    masterGain.connect(getAudioOutput(ctx));
+
+    oscillators.forEach((osc) => {
+      osc.start(startTime);
+      osc.stop(endTime + 0.06);
+    });
+    activeFallbackNodesRef.current.push({ oscillators, gains, filters, masterGain });
+  }, [getAudioOutput]);
 
   const playExercise = useCallback(async (exerciseToPlay = exercise, startEventIndex = 0, loopFromSelection = false) => {
     const isHarmonic = exerciseToPlay?.type === "harmonic";
@@ -3075,8 +3164,11 @@ export default function IntervalTrainerPage() {
       const step = isChordExercise ? chordWholeDuration : secondsPerBeat;
       const baseDuration = isChordExercise ? chordSoundDuration : step * 0.92;
       const fadeTailSeconds = isChordExercise
-        ? (chordGapMode === "noSilence" ? Math.min(0.035, chordWholeDuration * 0.008) : chordGapDuration * 0.56)
+        ? (chordGapMode === "noSilence" ? Math.min(0.035, chordWholeDuration * 0.008) : chordGapDuration)
         : secondsPerBeat * 0.18;
+      const chordTailOverlapSeconds = isChordExercise && chordGapMode !== "noSilence"
+        ? Math.min(0.16, Math.max(0.055, chordGapDuration * 0.42))
+        : 0;
       playbackLoopRef.current = Boolean(loopFromSelection && isChordExercise);
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
       const instrumentConfigs = isChordExercise
@@ -3158,12 +3250,33 @@ export default function IntervalTrainerPage() {
         eventNotes.forEach(({ note, instrument: instrumentConfig }) => {
           const config = instrumentConfig ?? selectedInstrument;
           const sfInstrument = sfMap.get(config.value);
-          const duration = config?.sustain ? Math.max(0.24, baseDuration + fadeTailSeconds) : Math.max(0.2, baseDuration + fadeTailSeconds * 0.65);
+          const duration = isChordExercise
+            ? (chordGapMode === "noSilence"
+                ? Math.max(0.2, chordWholeDuration - 0.012)
+                : Math.max(0.2, chordSoundDuration + chordGapDuration * 0.96))
+            : (config?.sustain ? Math.max(0.24, baseDuration + fadeTailSeconds) : Math.max(0.2, baseDuration + fadeTailSeconds * 0.65));
+          const release = isChordExercise
+            ? (chordGapMode === "noSilence" ? Math.min(0.05, chordWholeDuration * 0.01) : Math.max(0.16, chordGapDuration * 0.92))
+            : Math.max(0.04, fadeTailSeconds * 0.6);
           if (sfInstrument) {
-            const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
+            const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, {
+              duration,
+              gain,
+              attack: isChordExercise ? 0.006 : 0.01,
+              decay: isChordExercise ? 0.08 : 0.06,
+              sustain: isChordExercise && chordGapMode !== "noSilence" ? 0.9 : 1,
+              release,
+              adsr: [isChordExercise ? 0.006 : 0.01, isChordExercise ? 0.08 : 0.06, isChordExercise && chordGapMode !== "noSilence" ? 0.9 : 1, release],
+            });
             activePlayersRef.current.push(player);
           } else {
             createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, volume);
+          }
+
+          if (isChordExercise && chordGapMode !== "noSilence" && chordGapDuration > 0) {
+            const tailStart = start + Math.max(0, chordSoundDuration - chordTailOverlapSeconds);
+            const tailDuration = chordGapDuration + chordTailOverlapSeconds + 0.08;
+            createResonanceTail(ctx, midiToFreq(note.midi), tailStart, tailDuration, volume);
           }
         });
       });
@@ -3183,7 +3296,7 @@ export default function IntervalTrainerPage() {
       console.error("Error al reproducir:", error);
       if (sessionId === playbackSessionRef.current) setIsPlaying(false);
     }
-  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordMiddleInstrument, chordRepeat, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, selectedInstrument, stopAllAudio, tempo, volume]);
+  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordMiddleInstrument, chordRepeat, chordUpperInstrument, createFallbackVoice, createResonanceTail, ensureAudioContext, exercise, getSoundfontInstrument, selectedInstrument, stopAllAudio, tempo, volume]);
 
   const playSingleNote = useCallback(async (noteOrNotes) => {
     const rawItems = Array.isArray(noteOrNotes) ? noteOrNotes.filter(Boolean) : [noteOrNotes].filter(Boolean);
@@ -3221,8 +3334,11 @@ export default function IntervalTrainerPage() {
       const isChordPreview = items.length > 1 && items.some((item) => ["lower", "middle", "upper"].includes(item.voice));
       const chordWholeDuration = secondsPerBeat * 4;
       const chordPreviewDuration = chordGapMode === "noSilence"
-        ? chordWholeDuration
-        : chordWholeDuration * (13 / 14) + (chordWholeDuration / 14) * 0.56;
+        ? Math.max(0.2, chordWholeDuration - 0.012)
+        : Math.max(0.2, chordWholeDuration - 0.018);
+      const chordPreviewSoundDuration = chordGapMode === "noSilence" ? chordWholeDuration : chordWholeDuration * (13 / 14);
+      const chordPreviewGapDuration = chordGapMode === "noSilence" ? 0 : chordWholeDuration - chordPreviewSoundDuration;
+      const chordPreviewTailOverlap = chordPreviewGapDuration > 0 ? Math.min(0.16, Math.max(0.055, chordPreviewGapDuration * 0.42)) : 0;
       const start = ctx.currentTime + 0.06;
       items.forEach((item, index) => {
         const note = item.note;
@@ -3230,16 +3346,30 @@ export default function IntervalTrainerPage() {
         const duration = isChordPreview ? chordPreviewDuration : (config?.sustain ? 1.15 : 0.95);
         const sfInstrument = sfMap.get(config.value);
         if (sfInstrument) {
-          const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
+          const release = isChordPreview && chordGapMode !== "noSilence" ? Math.max(0.16, chordPreviewGapDuration * 0.92) : 0.05;
+          const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, {
+            duration,
+            gain,
+            attack: isChordPreview ? 0.006 : 0.01,
+            decay: isChordPreview ? 0.08 : 0.06,
+            sustain: isChordPreview && chordGapMode !== "noSilence" ? 0.9 : 1,
+            release,
+            adsr: [isChordPreview ? 0.006 : 0.01, isChordPreview ? 0.08 : 0.06, isChordPreview && chordGapMode !== "noSilence" ? 0.9 : 1, release],
+          });
           activePlayersRef.current.push(player);
         } else {
           createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, volume);
+        }
+        if (isChordPreview && chordGapMode !== "noSilence" && chordPreviewGapDuration > 0) {
+          const tailStart = start + Math.max(0, chordPreviewSoundDuration - chordPreviewTailOverlap);
+          const tailDuration = chordPreviewGapDuration + chordPreviewTailOverlap + 0.08;
+          createResonanceTail(ctx, midiToFreq(note.midi), tailStart, tailDuration, volume);
         }
       });
     } catch (error) {
       console.error("Error al reproducir la nota:", error);
     }
-  }, [chordBassInstrument, chordGapMode, chordMiddleInstrument, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, selectedInstrument, stopAllAudio, tempo, volume]);
+  }, [chordBassInstrument, chordGapMode, chordMiddleInstrument, chordUpperInstrument, createFallbackVoice, createResonanceTail, ensureAudioContext, exercise, getSoundfontInstrument, selectedInstrument, stopAllAudio, tempo, volume]);
 
   const startExercise = useCallback(() => {
     if (!canGenerate) return;
