@@ -477,6 +477,84 @@ function shuffleWithOctaveDeprioritized(items, getIntervalKey = (item) => item?.
     .map(({ item }) => item);
 }
 
+function weightedRandomItem(items, getWeight = () => 1) {
+  if (!Array.isArray(items) || !items.length) return undefined;
+  const weighted = items.map((item) => ({ item, weight: Math.max(0, Number(getWeight(item)) || 0) }));
+  const total = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+  if (total <= 0) return randomItem(items);
+  let cursor = Math.random() * total;
+  for (const entry of weighted) {
+    cursor -= entry.weight;
+    if (cursor <= 0) return entry.item;
+  }
+  return weighted[weighted.length - 1]?.item ?? randomItem(items);
+}
+
+function shuffleWeighted(items, getWeight = () => 1) {
+  return [...(items ?? [])]
+    .map((item) => ({ item, sort: Math.random() / Math.max(0.05, Number(getWeight(item)) || 0.05) }))
+    .sort((a, b) => a.sort - b.sort)
+    .map(({ item }) => item);
+}
+
+const GENERATION_HISTORY = {
+  melodic: null,
+  harmonic: null,
+  chords: null,
+};
+
+function noteTransitionIntervalKey(previous, current, allowedIntervalKeys = []) {
+  if (!previous || !current) return null;
+  const diff = Math.abs(current.midi - previous.midi);
+  return getIntervalBySemitones(diff, allowedIntervalKeys)?.key ?? null;
+}
+
+function summarizeIntervalCounts(keys = []) {
+  const counts = {};
+  keys.filter(Boolean).forEach((key) => {
+    counts[key] = (counts[key] ?? 0) + 1;
+  });
+  const ordered = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  return { counts, dominant: ordered[0]?.[0] ?? null };
+}
+
+function makeSequenceProfile(sequence, allowedIntervalKeys = []) {
+  const keys = [];
+  const directions = [];
+  for (let i = 1; i < (sequence?.length ?? 0); i += 1) {
+    const previous = sequence[i - 1];
+    const current = sequence[i];
+    keys.push(noteTransitionIntervalKey(previous, current, allowedIntervalKeys));
+    directions.push(current?.midi >= previous?.midi ? 1 : -1);
+  }
+  return { ...summarizeIntervalCounts(keys), directions };
+}
+
+function perfectStackFocusActive(intervalKeys = []) {
+  const allowed = new Set(sanitizeIntervalSelection(intervalKeys));
+  return allowed.has("P4") || allowed.has("P5") || allowed.has("P8");
+}
+
+function intervalContrastWeight(intervalKey, previousProfile, amount = 0.35) {
+  if (!intervalKey || !previousProfile?.dominant) return 1;
+  return intervalKey === previousProfile.dominant ? amount : 1.25;
+}
+
+function melodicCandidateWeight(candidate, sequence, previousProfile = null) {
+  const key = candidate?.intervalKey;
+  if (!key) return 1;
+  let weight = key === "P8" ? 0.16 : 1;
+  const previousKey = sequence?.length >= 2 ? noteTransitionIntervalKey(sequence[sequence.length - 2], sequence[sequence.length - 1]) : null;
+  if ((previousKey === "P4" || previousKey === "P5") && key === previousKey) weight *= 3.2;
+  if ((previousKey === "P4" || previousKey === "P5") && (key === "P4" || key === "P5") && key !== previousKey) weight *= 0.58;
+  weight *= intervalContrastWeight(key, previousProfile, 0.42);
+  return weight;
+}
+
+function registerMelodicProfile(sequence, intervalKeys) {
+  GENERATION_HISTORY.melodic = makeSequenceProfile(sequence, intervalKeys);
+}
+
 function midiToFreq(midi) {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
@@ -968,7 +1046,20 @@ function buildMelodyFromModel(noteCount, selectedIntervalKeys, selectedClefKeys,
   if (!usablePatterns.length) return null;
 
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    const pattern = randomItem(usablePatterns);
+    const previousProfile = GENERATION_HISTORY.melodic;
+    const pattern = weightedRandomItem(usablePatterns, (candidatePattern) => {
+      let weight = 1;
+      const stepKeys = candidatePattern.steps.map((step) => step.intervalKey);
+      if (perfectStackFocusActive(intervals)) {
+        if (stepKeys[0] === "P4" && stepKeys[1] === "P4") weight *= 5.2;
+        if (stepKeys[0] === "P5" && stepKeys[1] === "P5") weight *= 5.2;
+        if ((stepKeys[0] === "P4" && stepKeys[1] === "P5") || (stepKeys[0] === "P5" && stepKeys[1] === "P4")) weight *= 0.55;
+        if (stepKeys.includes("P8") && stepKeys.some((key) => key !== "P8")) weight *= 0.22;
+      }
+      const mainKey = stepKeys[0];
+      weight *= intervalContrastWeight(mainKey, previousProfile, 0.5);
+      return weight;
+    });
     const plannedUndirectedDirection = undirectedPatternDirectionFromPlan(pattern, directionPlan);
     const modelDirection = !patternHasExplicitDirections(pattern)
       ? (plannedUndirectedDirection === false ? false : (typeof plannedUndirectedDirection === "number" ? plannedUndirectedDirection : randomItem([1, -1])))
@@ -989,7 +1080,7 @@ function buildMelodyFromModel(noteCount, selectedIntervalKeys, selectedClefKeys,
         break;
       }
       const filtered = candidates.filter((item) => sequence.length < 2 || item.note.id !== sequence[sequence.length - 2].id);
-      current = pickWithOctaveDeprioritized(filtered.length ? filtered : candidates, (item) => item.intervalKey).note;
+      current = weightedRandomItem(filtered.length ? filtered : candidates, (item) => melodicCandidateWeight(item, sequence, previousProfile))?.note;
       sequence.push(current);
     }
 
@@ -1002,11 +1093,12 @@ function buildMelodyFromModel(noteCount, selectedIntervalKeys, selectedClefKeys,
         current = randomItem(all);
       } else {
         const filtered = candidates.filter((item) => sequence.length < 2 || item.note.id !== sequence[sequence.length - 2].id);
-        current = pickWithOctaveDeprioritized(filtered.length ? filtered : candidates, (item) => item.intervalKey).note;
+        current = weightedRandomItem(filtered.length ? filtered : candidates, (item) => melodicCandidateWeight(item, sequence, previousProfile))?.note;
       }
       sequence.push(current);
     }
 
+    registerMelodicProfile(sequence, intervals);
     return {
       id: `${Date.now()}-${Math.random()}`,
       sequence,
@@ -1032,6 +1124,7 @@ function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys, directio
   const clefKey = randomItem(sanitizeClefSelection(selectedClefKeys));
   const { all, central } = getNotesForClef(clefKey);
   const directionPlan = getDirectionPlan(safeCount, directionMode);
+  const previousProfile = GENERATION_HISTORY.melodic;
   let current = randomItem(central);
   const sequence = [current];
 
@@ -1042,11 +1135,12 @@ function buildMelody(noteCount, selectedIntervalKeys, selectedClefKeys, directio
       current = randomItem(all);
     } else {
       const filtered = candidates.filter((item) => sequence.length < 2 || item.note.id !== sequence[sequence.length - 2].id);
-      current = pickWithOctaveDeprioritized(filtered.length ? filtered : candidates, (item) => item.intervalKey).note;
+      current = weightedRandomItem(filtered.length ? filtered : candidates, (item) => melodicCandidateWeight(item, sequence, previousProfile))?.note;
     }
     sequence.push(current);
   }
 
+  registerMelodicProfile(sequence, intervals);
   return {
     id: `${Date.now()}-${Math.random()}`,
     sequence,
@@ -1114,16 +1208,72 @@ function buildTwelveToneSeries(noteCount, selectedIntervalKeys, selectedClefKeys
 }
 
 
+function harmonicPairIntervalProfile(pairs = []) {
+  const verticalKeys = pairs.map((pair) => pair?.intervalKey).filter(Boolean);
+  const bassMotionKeys = pairs.slice(1).map((pair) => pair?.bassMotionKey).filter(Boolean);
+  return {
+    vertical: summarizeIntervalCounts(verticalKeys),
+    bass: summarizeIntervalCounts(bassMotionKeys),
+  };
+}
+
+function registerHarmonicProfile(pairs) {
+  GENERATION_HISTORY.harmonic = harmonicPairIntervalProfile(pairs);
+}
+
+function countTrailingStaticBass(pairs = []) {
+  let count = 0;
+  for (let i = pairs.length - 1; i >= 1; i -= 1) {
+    if (pairs[i]?.bassMotionKey !== "static") break;
+    count += 1;
+  }
+  return count;
+}
+
+function harmonicBassMoveWeight(move, pairs = [], previousProfile = null) {
+  const key = move?.intervalKey;
+  let weight = 1;
+  if (key === "static") {
+    const staticRun = countTrailingStaticBass(pairs);
+    if (staticRun >= 3) return 0.01;
+    if (staticRun >= 2) return 0.06;
+    if (staticRun === 1) return 0.75;
+    return 1.25;
+  }
+  if (key === "m2" || key === "M2") weight = 5.2;
+  else if (key === "m3" || key === "M3") weight = 3.2;
+  else if (key === "P4" || key === "P5") weight = 2.2;
+  else if (key === "TT") weight = 0.5;
+  else if (key === "m6" || key === "M6") weight = 0.18;
+  else if (key === "m7" || key === "M7") weight = 0.1;
+  else if (key === "P8") weight = 0.035;
+  const previousPair = pairs[pairs.length - 1];
+  if (previousPair?.bassMotionKey === key && previousPair?.bassMotionDirection === move?.direction) weight *= 0.5;
+  weight *= intervalContrastWeight(key, previousProfile?.bass, 0.5);
+  return weight;
+}
+
+function harmonicVerticalIntervalWeight(interval, context = {}) {
+  const key = interval?.key;
+  if (!key) return 1;
+  let weight = key === "P8" ? 0.16 : 1;
+  weight *= intervalContrastWeight(key, context.previousProfile?.vertical, 0.55);
+  const used = context.intervalCounts?.[key] ?? 0;
+  if (used >= 2) weight *= 0.6;
+  if (used >= 3) weight *= 0.35;
+  return weight;
+}
+
 function harmonicPairSignature(pair) {
   if (!pair?.lower || !pair?.upper) return "";
   return `${pair.lower.midi}-${pair.upper.midi}`;
 }
 
-function makeHarmonicPairFromLower(lower, selectedIntervalKeys, clef, previousPair = null) {
+function makeHarmonicPairFromLower(lower, selectedIntervalKeys, clef, previousPair = null, context = {}) {
   const intervals = sanitizeIntervalSelection(selectedIntervalKeys).map(getIntervalDefinition).filter(Boolean);
   const usable = intervals.length ? intervals : DEFAULT_INTERVAL_KEYS.map(getIntervalDefinition).filter(Boolean);
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    const interval = pickIntervalDefinition(usable);
+    const interval = weightedRandomItem(usable, (item) => harmonicVerticalIntervalWeight(item, context));
     if (!interval) continue;
     const upper = transposeNote(lower, interval, 1, clef);
     if (!upper || upper.midi <= lower.midi) continue;
@@ -1174,6 +1324,8 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
   const fallbackPool = all.filter((note) => note.midi <= clef.maxMidi - 1);
   const pairs = [];
   const usedPairSignatures = new Set();
+  const verticalIntervalCounts = {};
+  const previousExerciseProfile = GENERATION_HISTORY.harmonic;
 
   const canUseHarmonicPair = (candidate) => {
     if (!candidate?.lower || !candidate?.upper) return false;
@@ -1185,6 +1337,7 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
   const registerHarmonicPair = (candidate) => {
     const sig = harmonicPairSignature(candidate);
     if (sig) usedPairSignatures.add(sig);
+    if (candidate?.intervalKey) verticalIntervalCounts[candidate.intervalKey] = (verticalIntervalCounts[candidate.intervalKey] ?? 0) + 1;
   };
 
   for (let i = 0; i < safeCount; i += 1) {
@@ -1192,11 +1345,16 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
     let pair = null;
 
     if (previousPair) {
-      const bassMoves = getHarmonicBassMoves(previousPair, intervals, clef);
+      let bassMoves = getHarmonicBassMoves(previousPair, intervals, clef);
+      const staticRun = countTrailingStaticBass(pairs);
+      if (staticRun >= 2) {
+        const nonStaticMoves = bassMoves.filter((move) => move.intervalKey !== "static");
+        if (nonStaticMoves.length) bassMoves = nonStaticMoves;
+      }
       for (let attempt = 0; attempt < 160 && !pair; attempt += 1) {
-        const move = pickWithOctaveDeprioritized(bassMoves, (item) => item.intervalKey);
+        const move = weightedRandomItem(bassMoves, (item) => harmonicBassMoveWeight(item, pairs, previousExerciseProfile));
         if (!move?.note) continue;
-        const candidate = makeHarmonicPairFromLower(move.note, intervals, clef, previousPair);
+        const candidate = makeHarmonicPairFromLower(move.note, intervals, clef, previousPair, { intervalCounts: verticalIntervalCounts, previousProfile: previousExerciseProfile });
         if (!candidate || !canUseHarmonicPair(candidate)) continue;
         pair = {
           ...candidate,
@@ -1208,7 +1366,7 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
     } else {
       for (let attempt = 0; attempt < 120 && !pair; attempt += 1) {
         const lower = randomItem(lowerPool.length ? lowerPool : fallbackPool);
-        const candidate = makeHarmonicPairFromLower(lower, intervals, clef, null);
+        const candidate = makeHarmonicPairFromLower(lower, intervals, clef, null, { intervalCounts: verticalIntervalCounts, previousProfile: previousExerciseProfile });
         if (canUseHarmonicPair(candidate)) pair = candidate;
       }
     }
@@ -1216,7 +1374,7 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
     if (!pair) {
       for (let attempt = 0; attempt < 220 && !pair; attempt += 1) {
         const lower = randomItem(lowerPool.length ? lowerPool : fallbackPool);
-        const candidate = makeHarmonicPairFromLower(lower, intervals, clef, previousPair);
+        const candidate = makeHarmonicPairFromLower(lower, intervals, clef, previousPair, { intervalCounts: verticalIntervalCounts, previousProfile: previousExerciseProfile });
         if (canUseHarmonicPair(candidate)) pair = candidate;
       }
     }
@@ -1268,6 +1426,7 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
     registerHarmonicPair(pair);
   }
 
+  registerHarmonicProfile(pairs);
   return {
     id: `${Date.now()}-${Math.random()}`,
     type: "harmonic",
@@ -1380,12 +1539,41 @@ function chordContainsDeprioritizedOctave(chord, selectedIntervalKeys) {
   return [intervalKeyBetweenNotes(voices[0], voices[1], allowed), intervalKeyBetweenNotes(voices[1], voices[2], allowed)].includes("P8");
 }
 
-function makeChordFromLower(lower, selectedIntervalKeys, clef) {
+function chordHasAnyOctave(chord, selectedIntervalKeys) {
+  const allowed = sanitizeIntervalSelection(selectedIntervalKeys);
+  if (!allowed.includes("P8") || allowed.every((key) => key === "P8")) return false;
+  const voices = [chord.lower, chord.middle, chord.upper].filter(Boolean);
+  if (voices.length < 3) return false;
+  return intervalKeyBetweenNotes(voices[0], voices[1], allowed) === "P8"
+    || intervalKeyBetweenNotes(voices[1], voices[2], allowed) === "P8"
+    || voices[2].midi - voices[0].midi === 12;
+}
+
+function chordIntervalPairWeight(first, second, selectedIntervalKeys, context = {}) {
+  if (!first || !second) return 1;
+  let weight = 1;
+  if (perfectStackFocusActive(selectedIntervalKeys)) {
+    if (first.key === "P4" && second.key === "P4") weight *= 6;
+    if (first.key === "P5" && second.key === "P5") weight *= 6;
+    if ((first.key === "P4" && second.key === "P5") || (first.key === "P5" && second.key === "P4")) weight *= 0.55;
+  }
+  if (first.key === "P8" || second.key === "P8") weight *= 0.08;
+  const outerSemitones = first.semitones + second.semitones;
+  if (outerSemitones === 12) weight *= 0.12;
+  weight *= intervalContrastWeight(first.key, context.previousProfile, 0.6);
+  weight *= intervalContrastWeight(second.key, context.previousProfile, 0.6);
+  const modelKey = `${first.key}+${second.key}`;
+  const used = context.modelCounts?.get?.(modelKey) ?? 0;
+  if (used >= 1 && first.key !== second.key) weight *= 0.65;
+  return weight;
+}
+
+function makeChordFromLower(lower, selectedIntervalKeys, clef, context = {}) {
   const intervals = sanitizeIntervalSelection(selectedIntervalKeys).map(getIntervalDefinition).filter(Boolean);
   const usable = intervals.length ? intervals : DEFAULT_CHORD_INTERVAL_KEYS.map(getIntervalDefinition).filter(Boolean);
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    const first = pickIntervalDefinition(usable);
-    const second = pickIntervalDefinition(usable);
+  for (let attempt = 0; attempt < 160; attempt += 1) {
+    const first = weightedRandomItem(usable, (interval) => chordIntervalPairWeight(interval, { key: "_pending", semitones: 0 }, selectedIntervalKeys, context));
+    const second = weightedRandomItem(usable, (interval) => chordIntervalPairWeight(first, interval, selectedIntervalKeys, context));
     if (!first || !second) continue;
     const middle = transposeNote(lower, first, 1, clef);
     if (!middle) continue;
@@ -1395,18 +1583,19 @@ function makeChordFromLower(lower, selectedIntervalKeys, clef) {
     if (upper.midi > clef.maxMidi || lower.midi < clef.minMidi) continue;
     const chord = { lower, middle, upper, intervalKeys: [first.key, second.key] };
     if (!chordUsesSelectedIntervals(chord, selectedIntervalKeys)) continue;
+    if (chordHasAnyOctave(chord, selectedIntervalKeys) && Math.random() < 0.94) continue;
     return chord;
   }
   return null;
 }
 
-function makeRandomChord(clef, selectedIntervalKeys, preferCentral = true) {
+function makeRandomChord(clef, selectedIntervalKeys, preferCentral = true, context = {}) {
   const all = AVAILABLE_NOTES.filter((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi - 2);
   const central = all.filter((note) => note.midi >= clef.centerMinMidi && note.midi <= Math.min(clef.centerMaxMidi, clef.maxMidi - 2));
   const pool = preferCentral && central.length ? central : all;
   for (let attempt = 0; attempt < 160; attempt += 1) {
     const lower = randomItem(pool.length ? pool : all);
-    const chord = makeChordFromLower(lower, selectedIntervalKeys, clef);
+    const chord = makeChordFromLower(lower, selectedIntervalKeys, clef, context);
     if (chord) return chord;
   }
   const lower = midiToSimpleNote(clamp(clef.centerMinMidi ?? clef.minMidi, clef.minMidi, clef.maxMidi - 12));
@@ -1433,7 +1622,7 @@ function transposeChordParallel(chord, selectedIntervalKeys, clef) {
   return null;
 }
 
-function makeChordWithFixedRoles(fixedRoles, selectedIntervalKeys, clef) {
+function makeChordWithFixedRoles(fixedRoles, selectedIntervalKeys, clef, context = {}) {
   const pool = AVAILABLE_NOTES.filter((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi);
   const lowerPool = fixedRoles.lower ? [fixedRoles.lower] : pool;
   const middlePool = fixedRoles.middle ? [fixedRoles.middle] : pool;
@@ -1448,24 +1637,40 @@ function makeChordWithFixedRoles(fixedRoles, selectedIntervalKeys, clef) {
     const chord = { lower, middle, upper };
     if (!adjacentVoicesWithinOctave(chord)) continue;
     if (!chordUsesSelectedIntervals(chord, selectedIntervalKeys)) continue;
-    if (chordContainsDeprioritizedOctave(chord, selectedIntervalKeys) && Math.random() < 0.86) continue;
+    if (chordHasAnyOctave(chord, selectedIntervalKeys) && Math.random() < 0.96) continue;
+    const modelSig = chordModelSignature(chord, selectedIntervalKeys);
+    const used = context.modelCounts?.get?.(modelSig) ?? 0;
+    if (used >= 2 && Math.random() < 0.65) continue;
     return chord;
   }
   return null;
 }
 
-function makeChordWithCommonNotes(previousChord, selectedIntervalKeys, clef, commonCount = 1) {
+function makeChordWithCommonNotes(previousChord, selectedIntervalKeys, clef, commonCount = 1, context = {}) {
   const roles = ["lower", "middle", "upper"];
   for (let attempt = 0; attempt < 220; attempt += 1) {
     const keepRoles = [...roles].sort(() => Math.random() - 0.5).slice(0, commonCount);
     const fixed = {};
     keepRoles.forEach((role) => { fixed[role] = previousChord[role]; });
-    const generated = makeChordWithFixedRoles(fixed, selectedIntervalKeys, clef);
+    const generated = makeChordWithFixedRoles(fixed, selectedIntervalKeys, clef, context);
     if (!generated) continue;
     const sameRoleCommons = roles.filter((role) => generated[role]?.midi === previousChord[role]?.midi).length;
     if (sameRoleCommons >= commonCount) return { ...generated, linkMode: commonCount === 2 ? "common2" : "common1" };
   }
   return null;
+}
+
+function chordSequenceProfile(chords = [], allowedIntervalKeys = []) {
+  const keys = [];
+  chords.forEach((chord) => {
+    keys.push(intervalKeyBetweenNotes(chord?.lower, chord?.middle, allowedIntervalKeys));
+    keys.push(intervalKeyBetweenNotes(chord?.middle, chord?.upper, allowedIntervalKeys));
+  });
+  return summarizeIntervalCounts(keys);
+}
+
+function registerChordProfile(chords, allowedIntervalKeys = []) {
+  GENERATION_HISTORY.chords = chordSequenceProfile(chords, allowedIntervalKeys);
 }
 
 function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, selectedLinkModes = DEFAULT_CHORD_LINK_MODES) {
@@ -1478,7 +1683,10 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
   const chords = [];
   const signatureCounts = new Map();
   const modelCounts = new Map();
+  const previousExerciseProfile = GENERATION_HISTORY.chords;
   const maxModelRepeats = safeCount <= 3 ? 1 : (safeCount <= 8 ? 2 : 3);
+  const maxOctaveChords = intervals.every((key) => key === "P8") ? safeCount : (safeCount <= 8 ? 1 : 2);
+  let octaveChordCount = 0;
 
   const canUseChord = (candidate, options = {}) => {
     if (!candidate) return false;
@@ -1489,6 +1697,7 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
     if ((signatureCounts.get(sig) ?? 0) > 0) return false;
     // El mismo modelo interválico puede reaparecer transportado, pero con límite.
     if (!options.relaxModelLimit && (modelCounts.get(modelSig) ?? 0) >= maxModelRepeats) return false;
+    if (!options.relaxOctaveLimit && chordHasAnyOctave(candidate, intervals) && octaveChordCount >= maxOctaveChords) return false;
     return true;
   };
 
@@ -1497,6 +1706,7 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
     const modelSig = chordModelSignature(candidate, intervals);
     signatureCounts.set(sig, (signatureCounts.get(sig) ?? 0) + 1);
     modelCounts.set(modelSig, (modelCounts.get(modelSig) ?? 0) + 1);
+    if (chordHasAnyOctave(candidate, intervals)) octaveChordCount += 1;
   };
 
   const decorateChord = (candidate, fallbackLinkMode = null) => ({
@@ -1507,10 +1717,10 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
 
   let current = null;
   for (let attempt = 0; attempt < 180 && !current; attempt += 1) {
-    const maybe = makeRandomChord(clef, intervals);
+    const maybe = makeRandomChord(clef, intervals, true, { modelCounts, previousProfile: previousExerciseProfile });
     if (canUseChord(maybe)) current = maybe;
   }
-  current = current ?? makeRandomChord(clef, intervals);
+  current = current ?? makeRandomChord(clef, intervals, true, { modelCounts, previousProfile: previousExerciseProfile });
   current = decorateChord(current, 'inicio');
   chords.push(current);
   registerChord(current);
@@ -1523,7 +1733,7 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
       for (let attempt = 0; attempt < 40; attempt += 1) {
         const candidate = candidateMode === 'parallel'
           ? transposeChordParallel(current, intervals, clef)
-          : makeChordWithCommonNotes(current, intervals, clef, candidateMode === 'common2' ? 2 : 1);
+          : makeChordWithCommonNotes(current, intervals, clef, candidateMode === 'common2' ? 2 : 1, { modelCounts, previousProfile: previousExerciseProfile });
         if (canUseChord(candidate)) {
           next = candidate;
           break;
@@ -1533,22 +1743,23 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
     }
     if (!next) {
       for (let attempt = 0; attempt < 160 && !next; attempt += 1) {
-        const candidate = { ...makeRandomChord(clef, intervals, false), linkMode: 'libre' };
+        const candidate = { ...makeRandomChord(clef, intervals, false, { modelCounts, previousProfile: previousExerciseProfile }), linkMode: 'libre' };
         if (canUseChord(candidate)) next = candidate;
       }
     }
     if (!next) {
       for (let attempt = 0; attempt < 220 && !next; attempt += 1) {
-        const candidate = { ...makeRandomChord(clef, intervals, false), linkMode: 'libre' };
+        const candidate = { ...makeRandomChord(clef, intervals, false, { modelCounts, previousProfile: previousExerciseProfile }), linkMode: 'libre' };
         if (canUseChord(candidate, { relaxModelLimit: true })) next = candidate;
       }
     }
-    next = decorateChord(next ?? { ...makeRandomChord(clef, intervals, false), linkMode: 'libre' }, 'libre');
+    next = decorateChord(next ?? { ...makeRandomChord(clef, intervals, false, { modelCounts, previousProfile: previousExerciseProfile }), linkMode: 'libre' }, 'libre');
     chords.push(next);
     registerChord(next);
     current = next;
   }
 
+  registerChordProfile(chords, intervals);
   return {
     id: `${Date.now()}-${Math.random()}`,
     type: 'chords',
