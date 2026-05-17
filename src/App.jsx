@@ -2990,6 +2990,32 @@ export default function IntervalTrainerPage() {
     return input;
   }, []);
 
+  const setAudioOutputVolume = useCallback((ctx, volumeLevel = 100) => {
+    const output = getAudioOutput(ctx);
+    const scalar = clamp(Number(volumeLevel), MIN_VOLUME, MAX_VOLUME) / 100;
+    try {
+      output.gain.cancelScheduledValues(ctx.currentTime);
+      output.gain.setTargetAtTime(scalar, ctx.currentTime, 0.012);
+    } catch {
+      output.gain.value = scalar;
+    }
+    return output;
+  }, [getAudioOutput]);
+
+  useEffect(() => {
+    const current = audioOutputRef.current;
+    if (!current?.context || !current?.input) return;
+    const scalar = isPlaying && exercise?.type === "chords"
+      ? clamp(Number(volume), MIN_VOLUME, MAX_VOLUME) / 100
+      : 1;
+    try {
+      current.input.gain.cancelScheduledValues(current.context.currentTime);
+      current.input.gain.setTargetAtTime(scalar, current.context.currentTime, 0.012);
+    } catch {
+      current.input.gain.value = scalar;
+    }
+  }, [exercise?.type, isPlaying, volume]);
+
   const getSoundfontInstrument = useCallback(async (ctx, instrumentConfig) => {
     if (!instrumentConfig?.soundfont) return null;
     const cacheKey = instrumentConfig.soundfont;
@@ -3171,7 +3197,8 @@ export default function IntervalTrainerPage() {
     const audibleWindow = Math.max(0.05, eventDuration - silentTailDuration);
     const releaseDuration = clamp(Number(options.releaseDuration ?? Math.max(0.02, audibleWindow * 0.1)), 0.012, Math.max(0.012, audibleWindow - 0.02));
     const mainDuration = clamp(Number(options.mainDuration ?? audibleWindow - releaseDuration), 0.04, Math.max(0.04, audibleWindow - releaseDuration));
-    const peakGain = Math.max(0.0001, Number(options.gain ?? 1));
+    const peakGain = Math.max(0.0001, Number(options.envelopeGain ?? options.gain ?? 1));
+    const playerGain = Math.max(0, Number(options.playerGain ?? options.gain ?? 1));
     const isChordEvent = Boolean(options.isChordEvent);
     const stopPadding = isChordEvent ? Math.max(0.14, releaseDuration * 0.35) : 0.08;
     const attack = isChordEvent ? Math.min(0.03, Math.max(0.012, eventDuration * 0.004)) : 0.01;
@@ -3190,7 +3217,7 @@ export default function IntervalTrainerPage() {
 
     const player = sfInstrument.play(noteNameForSoundFont(note.midi), startTime, {
       duration: playerDuration,
-      gain: 1,
+      gain: playerGain,
       destination: outputGain,
       attack: 0.001,
       decay: isChordEvent ? 0.05 : 0.06,
@@ -3229,6 +3256,7 @@ export default function IntervalTrainerPage() {
 
     try {
       const ctx = await ensureAudioContext();
+      setAudioOutputVolume(ctx, isChordExercise ? volume : 100);
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
       // En acordes, el tempo se entiende como negra: la redonda completa dura 4 negras.
       // Acordes: cuerpo + salida suave + hueco real, todo dentro de la redonda.
@@ -3242,7 +3270,9 @@ export default function IntervalTrainerPage() {
       const baseDuration = isChordExercise ? chordAudibleDuration : step * 0.92;
       const fadeTailSeconds = isChordExercise ? chordReleaseDuration + chordSilenceDuration : secondsPerBeat * 0.18;
       playbackLoopRef.current = Boolean(loopFromSelection && isChordExercise);
-      const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
+      const gain = isChordExercise
+        ? SOUNDFONT_GAIN_BOOST
+        : Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
       const instrumentConfigs = isChordExercise
         ? {
             lower: getInstrumentConfig(chordBassInstrument),
@@ -3333,7 +3363,8 @@ export default function IntervalTrainerPage() {
                 mainDuration: chordSoundDuration,
                 releaseDuration: chordReleaseDuration,
                 silentTailDuration: chordSilenceDuration,
-                gain,
+                playerGain: gain,
+                envelopeGain: 1,
                 isChordEvent: true,
               });
             } else {
@@ -3349,7 +3380,7 @@ export default function IntervalTrainerPage() {
               activePlayersRef.current.push(player);
             }
           } else {
-            createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, volume);
+            createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, isChordExercise ? 100 : volume);
           }
         });
       });
@@ -3369,7 +3400,7 @@ export default function IntervalTrainerPage() {
       console.error("Error al reproducir:", error);
       if (sessionId === playbackSessionRef.current) setIsPlaying(false);
     }
-  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordMiddleInstrument, chordRepeat, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, playSoundfontWithManualEnvelope, selectedInstrument, stopAllAudio, tempo, volume]);
+  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordMiddleInstrument, chordRepeat, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, playSoundfontWithManualEnvelope, selectedInstrument, setAudioOutputVolume, stopAllAudio, tempo, volume]);
 
   const playSingleNote = useCallback(async (noteOrNotes) => {
     const rawItems = Array.isArray(noteOrNotes) ? noteOrNotes.filter(Boolean) : [noteOrNotes].filter(Boolean);
@@ -3384,7 +3415,11 @@ export default function IntervalTrainerPage() {
     setIsPlaying(false);
     try {
       const ctx = await ensureAudioContext();
-      const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
+      const isChordPreview = items.length > 1 && items.some((item) => ["lower", "middle", "upper"].includes(item.voice));
+      setAudioOutputVolume(ctx, isChordPreview ? volume : 100);
+      const gain = isChordPreview
+        ? SOUNDFONT_GAIN_BOOST
+        : Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
       const configs = items.map((item) => {
         if (item.voice === "lower") return getInstrumentConfig(chordBassInstrument);
         if (item.voice === "middle") return getInstrumentConfig(chordMiddleInstrument);
@@ -3404,7 +3439,6 @@ export default function IntervalTrainerPage() {
       }));
       if (sessionId !== playbackSessionRef.current) return;
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
-      const isChordPreview = items.length > 1 && items.some((item) => ["lower", "middle", "upper"].includes(item.voice));
       const chordWholeDuration = secondsPerBeat * 4;
       const chordPreviewReleaseDuration = chordWholeDuration * 0.10;
       const chordPreviewSilenceDuration = chordGapMode === "withSilence" ? chordWholeDuration * 0.07 : 0;
@@ -3424,7 +3458,8 @@ export default function IntervalTrainerPage() {
               mainDuration: chordPreviewSoundDuration,
               releaseDuration: chordPreviewReleaseDuration,
               silentTailDuration: chordPreviewSilenceDuration,
-              gain,
+              playerGain: gain,
+              envelopeGain: 1,
               isChordEvent: true,
             });
           } else {
@@ -3440,13 +3475,13 @@ export default function IntervalTrainerPage() {
             activePlayersRef.current.push(player);
           }
         } else {
-          createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, volume);
+          createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, isChordPreview ? 100 : volume);
         }
       });
     } catch (error) {
       console.error("Error al reproducir la nota:", error);
     }
-  }, [chordBassInstrument, chordGapMode, chordMiddleInstrument, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, playSoundfontWithManualEnvelope, selectedInstrument, stopAllAudio, tempo, volume]);
+  }, [chordBassInstrument, chordGapMode, chordMiddleInstrument, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, playSoundfontWithManualEnvelope, selectedInstrument, setAudioOutputVolume, stopAllAudio, tempo, volume]);
 
   const startExercise = useCallback(() => {
     if (!canGenerate) return;
