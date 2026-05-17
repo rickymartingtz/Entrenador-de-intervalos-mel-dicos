@@ -184,7 +184,7 @@ const STATS_KEY = "intervalTrainer.stats.v11";
 const MARKS_KEY = "intervalTrainer.marks.v12";
 const SOUNDFONT_LIBRARY = "MusyngKite";
 const SOUNDFONT_BASE_URL = "https://gleitz.github.io/midi-js-soundfonts";
-const PITCH_HISTORY_LEN = 200;
+const PITCH_HISTORY_LEN = 80;
 const TUNER_RANGE_CENTS = 50;
 const IN_TUNE_THRESHOLD = 10;
 const TUNER_HOLD_OPTIONS = [0.5, 1, 1.5, 2, 3, 4];
@@ -2585,7 +2585,8 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
     ctx.stroke();
 
     // El historial baja verticalmente: eje X = cents, eje Y = tiempo.
-    // Así la línea que se dibuja queda alineada con el indicador actual.
+    // 80 muestras a 40 ms ≈ 3.2 s de historial visible: el trazo avanza
+    // más rápido y evita que la línea se amontone visualmente.
     if (active && centsHistoryRef?.current) {
       const buf = centsHistoryRef.current;
       const len = buf.length;
