@@ -126,7 +126,6 @@ const DEFAULT_CHORD_BASS_INSTRUMENT = "cello";
 const DEFAULT_CHORD_MIDDLE_INSTRUMENT = "viola";
 const DEFAULT_CHORD_UPPER_INSTRUMENT = "violin";
 const DEFAULT_CHORD_INSTRUMENT_PRESET = "custom";
-const DEFAULT_THEME = "light";
 const HARMONIC_MIN_PAIRS = 1;
 const HARMONIC_MAX_PAIRS = 12;
 const CHORD_MIN_COUNT = 1;
@@ -1687,7 +1686,6 @@ function initialSettings() {
     chordMiddleInstrument: DEFAULT_CHORD_MIDDLE_INSTRUMENT,
     chordUpperInstrument: DEFAULT_CHORD_UPPER_INSTRUMENT,
     chordInstrumentPreset: DEFAULT_CHORD_INSTRUMENT_PRESET,
-    theme: DEFAULT_THEME,
   };
   try {
     const stored = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) || "null");
@@ -1713,7 +1711,6 @@ function initialSettings() {
       chordMiddleInstrument: INSTRUMENTS.some((item) => item.value === stored.chordMiddleInstrument) ? stored.chordMiddleInstrument : DEFAULT_CHORD_MIDDLE_INSTRUMENT,
       chordUpperInstrument: INSTRUMENTS.some((item) => item.value === stored.chordUpperInstrument) ? stored.chordUpperInstrument : DEFAULT_CHORD_UPPER_INSTRUMENT,
       chordInstrumentPreset: CHORD_INSTRUMENT_PRESETS.some((item) => item.key === stored.chordInstrumentPreset) ? stored.chordInstrumentPreset : DEFAULT_CHORD_INSTRUMENT_PRESET,
-      theme: stored.theme === "dark" ? "dark" : DEFAULT_THEME,
     };
   } catch {
     return defaults;
@@ -2999,27 +2996,19 @@ function AppThemeStyles() {
   return (
     <style>{`
       .app-theme-light {
-        --aural-active-bg: #6f6657;
-        --aural-active-border: #7d7362;
-        --aural-active-text: #fafaf7;
-        --aural-active-hover: #615849;
-        --aural-ring: rgba(111, 102, 87, 0.18);
-        --aural-range: #7d7362;
-      }
-      .app-theme-dark {
-        --aural-active-bg: #b5a98d;
-        --aural-active-border: #c3b798;
-        --aural-active-text: #15140f;
-        --aural-active-hover: #c5b999;
-        --aural-ring: rgba(197, 185, 153, 0.22);
-        --aural-range: #b5a98d;
+        --aural-active-bg: #eef4ef;
+        --aural-active-border: #adc1b4;
+        --aural-active-text: #3f5849;
+        --aural-active-hover: #e3ede6;
+        --aural-ring: rgba(63, 88, 73, 0.12);
+        --aural-range: #0284c7;
       }
       .aural-active,
       .aural-primary {
         background-color: var(--aural-active-bg) !important;
         border-color: var(--aural-active-border) !important;
         color: var(--aural-active-text) !important;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 0 0 1px var(--aural-ring) !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 0 0 1px var(--aural-ring) !important;
       }
       .aural-active:hover,
       .aural-primary:hover {
@@ -3028,62 +3017,6 @@ function AppThemeStyles() {
       }
       .app-theme-light input[type="range"] {
         accent-color: var(--aural-range);
-      }
-      .app-theme-dark,
-      .app-theme-dark.bg-zinc-100 {
-        background-color: #15140f !important;
-        color: #f4efe4 !important;
-      }
-      .app-theme-dark .bg-white {
-        background-color: #211f19 !important;
-      }
-      .app-theme-dark .bg-zinc-50 {
-        background-color: #27241d !important;
-      }
-      .app-theme-dark .bg-zinc-100 {
-        background-color: #2d2a22 !important;
-      }
-      .app-theme-dark .bg-zinc-200 {
-        background-color: #433f34 !important;
-      }
-      .app-theme-dark .staff-scroll,
-      .app-theme-dark .mobile-clef-mask {
-        background-color: #fafaf7 !important;
-      }
-      .app-theme-dark .staff-scroll svg,
-      .app-theme-dark .mobile-clef-mask svg {
-        background-color: #fafaf7 !important;
-      }
-      .app-theme-dark .border-zinc-100,
-      .app-theme-dark .border-zinc-200,
-      .app-theme-dark .border-zinc-300 {
-        border-color: #454033 !important;
-      }
-      .app-theme-dark .text-zinc-950,
-      .app-theme-dark .text-zinc-900,
-      .app-theme-dark .text-zinc-800,
-      .app-theme-dark .text-zinc-700 {
-        color: #f4efe4 !important;
-      }
-      .app-theme-dark .text-zinc-600,
-      .app-theme-dark .text-zinc-500,
-      .app-theme-dark .text-zinc-400 {
-        color: #c4bca9 !important;
-      }
-      .app-theme-dark input,
-      .app-theme-dark select {
-        color-scheme: dark;
-        accent-color: var(--aural-range);
-      }
-      .app-theme-dark .hover\:bg-zinc-50:hover,
-      .app-theme-dark .hover\:bg-zinc-100:hover,
-      .app-theme-dark .hover\:bg-white:hover {
-        background-color: #302d24 !important;
-      }
-      .app-theme-dark .shadow-sm,
-      .app-theme-dark .shadow-xl,
-      .app-theme-dark .shadow-2xl {
-        box-shadow: 0 16px 40px rgba(0,0,0,0.28) !important;
       }
     `}</style>
   );
@@ -3120,7 +3053,6 @@ export default function IntervalTrainerPage() {
   const [chordMiddleInstrument, setChordMiddleInstrument] = useState(saved?.chordMiddleInstrument ?? DEFAULT_CHORD_MIDDLE_INSTRUMENT);
   const [chordUpperInstrument, setChordUpperInstrument] = useState(saved?.chordUpperInstrument ?? DEFAULT_CHORD_UPPER_INSTRUMENT);
   const [chordInstrumentPreset, setChordInstrumentPreset] = useState(saved?.chordInstrumentPreset ?? DEFAULT_CHORD_INSTRUMENT_PRESET);
-  const [theme, setTheme] = useState(saved?.theme === "dark" ? "dark" : DEFAULT_THEME);
   const [exercise, setExercise] = useState(() => {
     const mode = saved?.trainerMode ?? DEFAULT_TRAINER_MODE;
     if (mode === "chords") {
@@ -3232,10 +3164,9 @@ export default function IntervalTrainerPage() {
         chordMiddleInstrument,
         chordUpperInstrument,
         chordInstrumentPreset,
-        theme,
       }));
     } catch {}
-  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordInstrumentPreset, chordMiddleInstrument, chordRepeat, chordUpperInstrument, directionMode, harmonicResponseMode, instrument, noteCount, selectedChordLinkModes, selectedClefKeys, selectedIntervalKeys, tempo, theme, trainerMode, useTwelveToneSeries, volume]);
+  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordInstrumentPreset, chordMiddleInstrument, chordRepeat, chordUpperInstrument, directionMode, harmonicResponseMode, instrument, noteCount, selectedChordLinkModes, selectedClefKeys, selectedIntervalKeys, tempo, trainerMode, useTwelveToneSeries, volume]);
 
   useEffect(() => {
     try {
@@ -4088,7 +4019,7 @@ export default function IntervalTrainerPage() {
   return (
     <>
       <AppThemeStyles />
-      <div className={`min-h-screen overflow-x-hidden bg-zinc-100 px-3 py-4 pb-56 text-zinc-950 sm:px-6 sm:py-6 sm:pb-44 md:px-10 md:py-10 md:pb-36 ${theme === "dark" ? "app-theme-dark" : "app-theme-light"}`}>
+      <div className="min-h-screen overflow-x-hidden bg-zinc-100 px-3 py-4 pb-56 text-zinc-950 sm:px-6 sm:py-6 sm:pb-44 md:px-10 md:py-10 md:pb-36 app-theme-light">
       <div className="mx-auto max-w-[1600px] space-y-4 sm:space-y-6">
         <header className="space-y-3">
           <div className="flex flex-wrap items-end justify-between gap-4">
@@ -4096,7 +4027,7 @@ export default function IntervalTrainerPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.34em] text-zinc-500 sm:text-sm">MÉTODO AURAL</p>
               <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl">Entrenador de intervalos</h1>
             </div>
-            <div className="flex flex-col items-end gap-2"><div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTheme("light")} className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${theme === "light" ? "aural-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Claro</button><button type="button" onClick={() => setTheme("dark")} className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${theme === "dark" ? "aural-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Oscuro mate</button></div><div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "aural-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => setTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "aural-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button><button type="button" onClick={() => setTrainerMode("chords")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "chords" ? "aural-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Acordes</button></div></div>
+            <div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "aural-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => setTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "aural-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button><button type="button" onClick={() => setTrainerMode("chords")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "chords" ? "aural-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Acordes</button></div>
           </div>
         </header>
 
