@@ -2804,7 +2804,6 @@ export default function IntervalTrainerPage() {
   const [timeMarks, setTimeMarks] = useState(savedMarks);
   const [playbackStartIndex, setPlaybackStartIndex] = useState(0);
   const [playbackCursorIndex, setPlaybackCursorIndex] = useState(0);
-  const [loopPlayback, setLoopPlayback] = useState(false);
   const playbackLoopRef = useRef(false);
 
   const selectedInstrument = useMemo(() => INSTRUMENTS.find((item) => item.value === instrument) ?? INSTRUMENTS.find((item) => item.value === DEFAULT_INSTRUMENT), [instrument]);
@@ -3944,14 +3943,7 @@ export default function IntervalTrainerPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setLoopPlayback((current) => !current)}
-                        className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${loopPlayback ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
-                      >
-                        Bucle
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => isPlaying ? stopPlayback() : playExercise(exercise, playbackStartIndex, loopPlayback)}
+                        onClick={() => isPlaying ? stopPlayback() : playExercise(exercise, playbackStartIndex, false)}
                         className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${isPlaying ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
                       >
                         {isPlaying ? "Detener" : "Escuchar desde aquí"}
