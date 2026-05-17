@@ -1290,10 +1290,11 @@ function makeRandomChord(clef, selectedIntervalKeys, preferCentral = true) {
 }
 
 function transposeChordParallel(chord, selectedIntervalKeys, clef) {
-  const intervals = sanitizeIntervalSelection(selectedIntervalKeys).map(getIntervalDefinition).filter(Boolean);
-  const usable = intervals.length ? intervals : DEFAULT_INTERVAL_KEYS.map(getIntervalDefinition).filter(Boolean);
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const interval = pickIntervalDefinition(usable);
+  // En las secuencias de acordes, el enlace paralelo debe funcionar como
+  // desplazamiento conjunto del modelo: siempre por 2m o 2M, hacia arriba o hacia abajo.
+  const usable = ["m2", "M2"].map(getIntervalDefinition).filter(Boolean);
+  for (let attempt = 0; attempt < 160; attempt += 1) {
+    const interval = randomItem(usable);
     const direction = Math.random() > 0.5 ? 1 : -1;
     if (!interval) continue;
     const lower = transposeNote(chord.lower, interval, direction, clef);
@@ -1302,7 +1303,7 @@ function transposeChordParallel(chord, selectedIntervalKeys, clef) {
     if (!lower || !middle || !upper) continue;
     const next = { lower, middle, upper };
     if (lower.midi < middle.midi && middle.midi < upper.midi && adjacentVoicesWithinOctave(next) && chordUsesSelectedIntervals(next, selectedIntervalKeys) && [lower, middle, upper].every((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi)) {
-      return { ...next, linkMode: "parallel" };
+      return { ...next, linkMode: "parallel", parallelMotionKey: interval.key, parallelMotionDirection: direction };
     }
   }
   return null;
@@ -1794,32 +1795,41 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
             if (chordEntryMode !== "gradual" || !chordSlots.length) return chordSlots;
             const first = chordSlots[0];
             const firstOrder = getChordEntryOrder(exercise?.chords?.[0] ?? first);
-            const makeGradualSlot = (visibleVoices, statusVoice, visualKind) => ({
+            const firstVoice = firstOrder[0] ?? "lower";
+            const secondVoice = firstOrder[1] ?? CHORD_VOICES.find((voice) => voice !== firstVoice) ?? "middle";
+            const thirdVoice = firstOrder[2] ?? CHORD_VOICES.find((voice) => voice !== firstVoice && voice !== secondVoice) ?? "upper";
+            const secondAnswered = revealFull || Boolean(first?.[`${secondVoice}Visible`]);
+            const thirdAnswered = revealFull || Boolean(first?.[`${thirdVoice}Visible`]);
+            const statusOf = (voice) => first?.[`${voice}Status`] ?? null;
+            const makeGradualSlot = (visibleVoices, statusByVoice, visualKind) => ({
               lower: first.lower,
               middle: first.middle,
               upper: first.upper,
               lowerVisible: visibleVoices.includes("lower"),
               middleVisible: visibleVoices.includes("middle"),
               upperVisible: visibleVoices.includes("upper"),
-              lowerStatus: statusVoice === "lower" ? first.lowerStatus : null,
-              middleStatus: statusVoice === "middle" ? first.middleStatus : null,
-              upperStatus: statusVoice === "upper" ? first.upperStatus : null,
+              lowerStatus: statusByVoice.lower ?? null,
+              middleStatus: statusByVoice.middle ?? null,
+              upperStatus: statusByVoice.upper ?? null,
               visualKind,
             });
-            const firstVoice = firstOrder[0] ?? "lower";
-            const hasAddedVoiceVisible = firstOrder
-              .slice(1)
-              .some((voice) => Boolean(first?.[`${voice}Visible`]));
-            const shouldShowGivenInsideFirstChord = revealFull || hasAddedVoiceVisible;
-            const firstChordSlot = {
-              ...first,
-              lowerVisible: Boolean(first.lowerVisible) && (firstVoice !== "lower" || shouldShowGivenInsideFirstChord),
-              middleVisible: Boolean(first.middleVisible) && (firstVoice !== "middle" || shouldShowGivenInsideFirstChord),
-              upperVisible: Boolean(first.upperVisible) && (firstVoice !== "upper" || shouldShowGivenInsideFirstChord),
-            };
             return [
-              makeGradualSlot([firstVoice], firstVoice, "single"),
-              firstChordSlot,
+              // 1) Solo la nota inicial — puede ser grave, media o aguda según el orden aleatorio.
+              makeGradualSlot([firstVoice], { [firstVoice]: statusOf(firstVoice) }, "single"),
+              // 2) Después de responder la segunda nota, se muestra el bicorde:
+              // la nota inicial se autocompleta como acierto y la segunda conserva su resultado real.
+              makeGradualSlot(
+                secondAnswered ? [firstVoice, secondVoice] : [],
+                secondAnswered ? { [firstVoice]: "correct", [secondVoice]: statusOf(secondVoice) } : {},
+                "partial"
+              ),
+              // 3) Después de responder la tercera nota, se muestra el tricorde completo:
+              // las dos notas anteriores se autocompletan como aciertos.
+              makeGradualSlot(
+                thirdAnswered ? [firstVoice, secondVoice, thirdVoice] : [],
+                thirdAnswered ? { [firstVoice]: "correct", [secondVoice]: "correct", [thirdVoice]: statusOf(thirdVoice) } : {},
+                "full"
+              ),
               ...chordSlots.slice(1),
             ];
           })()
@@ -3478,8 +3488,14 @@ export default function IntervalTrainerPage() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-zinc-100 px-3 py-4 pb-56 text-zinc-950 sm:px-6 sm:py-6 sm:pb-44 md:px-10 md:py-10 md:pb-36">
       <div className="mx-auto max-w-[1600px] space-y-4 sm:space-y-6">
-        <header className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Entrenador de intervalos · Método Aural</h1><div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => setTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button><button type="button" onClick={() => setTrainerMode("chords")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "chords" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Acordes</button></div></div>
+        <header className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.34em] text-zinc-500 sm:text-sm">MÉTODO AURAL</p>
+              <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl">Entrenador de intervalos</h1>
+            </div>
+            <div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => setTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button><button type="button" onClick={() => setTrainerMode("chords")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "chords" ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>Acordes</button></div>
+          </div>
         </header>
 
         <section className="grid gap-4 sm:gap-6 xl:grid-cols-[0.95fr_1.05fr]">
