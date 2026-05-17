@@ -1776,7 +1776,7 @@ function SelectionChip({ active, onClick, children, disabled = false, title }) {
       disabled={disabled}
       title={title}
       aria-label={title}
-      className={`min-h-[38px] rounded-full border px-2.5 py-1.5 text-xs transition sm:px-3 sm:py-2 sm:text-sm ${
+      className={`min-h-[34px] rounded-full border px-2.5 py-1 text-xs transition sm:min-h-[36px] sm:px-3 sm:py-1.5 sm:text-sm ${
         active
           ? "aural-active"
           : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500"
@@ -1811,7 +1811,7 @@ function ClefChip({ clef, active, onClick }) {
       onClick={onClick}
       title={clef.label}
       aria-label={clef.label}
-      className={`inline-flex min-h-[38px] items-center justify-center rounded-full border px-3 py-2 text-xs font-medium transition sm:min-h-[42px] sm:px-4 sm:text-sm ${
+      className={`inline-flex min-h-[34px] items-center justify-center rounded-full border px-3 py-1.5 text-xs font-medium transition sm:min-h-[38px] sm:px-3.5 sm:py-1.5 sm:text-sm ${
         active
           ? "aural-active"
           : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-50"
@@ -2996,11 +2996,11 @@ function AppThemeStyles() {
   return (
     <style>{`
       .app-theme-light {
-        --aural-active-bg: #eef4ef;
-        --aural-active-border: #adc1b4;
-        --aural-active-text: #3f5849;
-        --aural-active-hover: #e3ede6;
-        --aural-ring: rgba(63, 88, 73, 0.12);
+        --aural-active-bg: #edf8ef;
+        --aural-active-border: #9fceb0;
+        --aural-active-text: #2f6b46;
+        --aural-active-hover: #e4f4e8;
+        --aural-ring: rgba(47, 107, 70, 0.12);
         --aural-range: #0284c7;
       }
       .aural-active,
@@ -3014,6 +3014,16 @@ function AppThemeStyles() {
       .aural-primary:hover {
         background-color: var(--aural-active-hover) !important;
         border-color: var(--aural-active-border) !important;
+      }
+      .aural-mode-active {
+        background-color: #18181b !important;
+        border-color: #18181b !important;
+        color: #ffffff !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.08) !important;
+      }
+      .aural-mode-active:hover {
+        background-color: #27272a !important;
+        border-color: #27272a !important;
       }
       .app-theme-light input[type="range"] {
         accent-color: var(--aural-range);
@@ -4027,7 +4037,7 @@ export default function IntervalTrainerPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.34em] text-zinc-500 sm:text-sm">MÉTODO AURAL</p>
               <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl">Entrenador de intervalos</h1>
             </div>
-            <div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "aural-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => setTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "aural-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button><button type="button" onClick={() => setTrainerMode("chords")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "chords" ? "aural-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Acordes</button></div>
+            <div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "aural-mode-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => setTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "aural-mode-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button><button type="button" onClick={() => setTrainerMode("chords")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "chords" ? "aural-mode-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Acordes</button></div>
           </div>
         </header>
 
