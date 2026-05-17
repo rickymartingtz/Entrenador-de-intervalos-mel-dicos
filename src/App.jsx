@@ -1483,22 +1483,29 @@ function nextHarmonicStepAfter(step, exercise, harmonicResponseMode) {
   return nextPair < exercise.pairs.length ? { pairIndex: nextPair, voice: "lower" } : null;
 }
 
+function getChordAnswerOrder(chord, chordIndex = 0) {
+  // El primer tricorde conserva el orden aleatorio de entrada gradual
+  // (puede iniciar por voz baja, media o alta). Desde el segundo tricorde
+  // en adelante, las respuestas se piden siempre del bajo hacia arriba.
+  return chordIndex === 0 ? getChordEntryOrder(chord) : CHORD_VOICES;
+}
+
 function firstChordStep(exercise) {
   if (!exercise?.chords?.length) return null;
-  const firstOrder = getChordEntryOrder(exercise.chords[0]);
+  const firstOrder = getChordAnswerOrder(exercise.chords[0], 0);
   return { chordIndex: 0, voice: firstOrder[1] ?? "middle" };
 }
 
 function nextChordStepAfter(step, exercise) {
   if (!step || !exercise?.chords?.length) return null;
-  const currentOrder = getChordEntryOrder(exercise.chords[step.chordIndex]);
+  const currentOrder = getChordAnswerOrder(exercise.chords[step.chordIndex], step.chordIndex);
   const currentPosition = currentOrder.indexOf(step.voice);
   if (currentPosition >= 0 && currentPosition < currentOrder.length - 1) {
     return { chordIndex: step.chordIndex, voice: currentOrder[currentPosition + 1] };
   }
   const nextChord = step.chordIndex + 1;
   if (nextChord >= exercise.chords.length) return null;
-  const nextOrder = getChordEntryOrder(exercise.chords[nextChord]);
+  const nextOrder = getChordAnswerOrder(exercise.chords[nextChord], nextChord);
   return { chordIndex: nextChord, voice: nextOrder[0] ?? "lower" };
 }
 
