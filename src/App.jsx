@@ -4641,22 +4641,60 @@ export default function IntervalTrainerPage() {
                       </button>
                     </div>
                   </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={Math.max(0, playbackEvents.length - 1)}
-                    step={1}
-                    value={isPlaying ? playbackCursorIndex : playbackStartIndex}
-                    onChange={(event) => {
-                      const value = Number(event.target.value);
-                      setPlaybackStartIndex(value);
-                      setPlaybackCursorIndex(value);
-                    }}
-                    className="mt-3 w-full"
-                  />
-                  <div className="mt-1 flex justify-between text-[10px] text-zinc-500">
-                    <span>1</span>
-                    <span>{playbackEvents.length}</span>
+                  <div className="mt-3 space-y-2">
+                    <div className="relative pt-1 pb-3">
+                      <input
+                        type="range"
+                        min={0}
+                        max={Math.max(0, playbackEvents.length - 1)}
+                        step={1}
+                        value={isPlaying ? playbackCursorIndex : playbackStartIndex}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setPlaybackStartIndex(value);
+                          setPlaybackCursorIndex(value);
+                        }}
+                        className="relative z-20 w-full"
+                      />
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3">
+                        {playbackEvents.map((event, index) => {
+                          const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
+                          const isCurrent = index === (isPlaying ? playbackCursorIndex : playbackStartIndex);
+                          const isChordStart = event.kind === "single" || (event.kind === "full" && (index === 0 || playbackEvents[index - 1]?.chordIndex !== event.chordIndex));
+                          return (
+                            <span
+                              key={`playback-tick-${index}`}
+                              className={`absolute top-0 -translate-x-1/2 rounded-full ${isCurrent ? "h-3 w-1.5 bg-zinc-900" : isChordStart ? "h-3 w-px bg-zinc-500" : "h-2 w-px bg-zinc-300"}`}
+                              style={{ left: `${left}%` }}
+                              aria-hidden="true"
+                            />
+                          );
+                        })}
+                      </div>
+                      <div className="absolute inset-x-0 bottom-0 z-10 h-5">
+                        {playbackEvents.map((event, index) => {
+                          const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
+                          return (
+                            <button
+                              key={`playback-select-${index}`}
+                              type="button"
+                              aria-label={`Seleccionar ${event.label}`}
+                              title={event.label}
+                              onClick={() => {
+                                setPlaybackStartIndex(index);
+                                setPlaybackCursorIndex(index);
+                              }}
+                              className="absolute top-0 h-5 w-5 -translate-x-1/2 rounded-full bg-transparent"
+                              style={{ left: `${left}%` }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-zinc-500">
+                      <span>1</span>
+                      <span>{playbackEvents.length}</span>
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -4780,7 +4818,7 @@ export default function IntervalTrainerPage() {
           <button
             type="button"
             onClick={() => setShowProgressPanel((current) => !current)}
-            className={`inline-flex min-w-[92px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold transition ${showProgressPanel ? "aural-active" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
+            className={`inline-flex min-w-[92px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold transition ${showProgressPanel ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
           >
             Progreso
           </button>
