@@ -1549,6 +1549,36 @@ function chordHasAnyOctave(chord, selectedIntervalKeys) {
     || voices[2].midi - voices[0].midi === 12;
 }
 
+function chordTransitionIsVoiceBounded(previousChord, nextChord) {
+  if (!previousChord || !nextChord) return true;
+  const previousLower = previousChord.lower?.midi;
+  const previousMiddle = previousChord.middle?.midi;
+  const previousUpper = previousChord.upper?.midi;
+  const nextLower = nextChord.lower?.midi;
+  const nextMiddle = nextChord.middle?.midi;
+  const nextUpper = nextChord.upper?.midi;
+  if (![previousLower, previousMiddle, previousUpper, nextLower, nextMiddle, nextUpper].every(Number.isFinite)) return false;
+  if (!(nextLower < nextMiddle && nextMiddle < nextUpper)) return false;
+
+  // Evita solapamiento entre voces: cada voz puede llegar como máximo
+  // hasta la posición previa de la voz contigua, pero no rebasarla.
+  if (nextLower > previousMiddle) return false;
+  if (nextMiddle < previousLower || nextMiddle > previousUpper) return false;
+  if (nextUpper < previousMiddle) return false;
+  return true;
+}
+
+const CHORD_PARALLEL_MOTION_KEYS = ["m2", "M2", "m3", "M3", "P4", "TT", "P5"];
+
+function chordParallelMotionWeight(interval) {
+  if (!interval) return 0;
+  if (interval.key === "m2" || interval.key === "M2") return 9;
+  if (interval.key === "m3" || interval.key === "M3") return 5;
+  if (interval.key === "P4") return 1.15;
+  if (interval.key === "TT" || interval.key === "P5") return 0.45;
+  return 0;
+}
+
 function chordIntervalPairWeight(first, second, selectedIntervalKeys, context = {}) {
   if (!first || !second) return 1;
   let weight = 1;
@@ -1603,11 +1633,12 @@ function makeRandomChord(clef, selectedIntervalKeys, preferCentral = true, conte
 }
 
 function transposeChordParallel(chord, selectedIntervalKeys, clef) {
-  // En las secuencias de acordes, el enlace paralelo debe funcionar como
-  // desplazamiento conjunto del modelo: siempre por 2m o 2M, hacia arriba o hacia abajo.
-  const usable = ["m2", "M2"].map(getIntervalDefinition).filter(Boolean);
-  for (let attempt = 0; attempt < 160; attempt += 1) {
-    const interval = randomItem(usable);
+  // El enlace paralelo traslada el modelo completo, pero con control melódico:
+  // predominan 2as y 3as; 4J, TT y 5J solo aparecen esporádicamente.
+  // Nunca se usan desplazamientos mayores a 5J.
+  const usable = CHORD_PARALLEL_MOTION_KEYS.map(getIntervalDefinition).filter(Boolean);
+  for (let attempt = 0; attempt < 260; attempt += 1) {
+    const interval = weightedRandomItem(usable, chordParallelMotionWeight);
     const direction = Math.random() > 0.5 ? 1 : -1;
     if (!interval) continue;
     const lower = transposeNote(chord.lower, interval, direction, clef);
@@ -1615,7 +1646,12 @@ function transposeChordParallel(chord, selectedIntervalKeys, clef) {
     const upper = transposeNote(chord.upper, interval, direction, clef);
     if (!lower || !middle || !upper) continue;
     const next = { lower, middle, upper };
-    if (lower.midi < middle.midi && middle.midi < upper.midi && adjacentVoicesWithinOctave(next) && chordUsesSelectedIntervals(next, selectedIntervalKeys) && [lower, middle, upper].every((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi)) {
+    if (lower.midi < middle.midi
+      && middle.midi < upper.midi
+      && adjacentVoicesWithinOctave(next)
+      && chordTransitionIsVoiceBounded(chord, next)
+      && chordUsesSelectedIntervals(next, selectedIntervalKeys)
+      && [lower, middle, upper].every((note) => note.midi >= clef.minMidi && note.midi <= clef.maxMidi)) {
       return { ...next, linkMode: "parallel", parallelMotionKey: interval.key, parallelMotionDirection: direction };
     }
   }
@@ -1693,6 +1729,7 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
     const sig = chordSignature(candidate);
     const modelSig = chordModelSignature(candidate, intervals);
     if (!sig || !modelSig) return false;
+    if (options.previous && !chordTransitionIsVoiceBounded(options.previous, candidate)) return false;
     // No repetimos exactamente el mismo acorde con las mismas alturas.
     if ((signatureCounts.get(sig) ?? 0) > 0) return false;
     // El mismo modelo interválico puede reaparecer transportado, pero con límite.
@@ -1734,7 +1771,7 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
         const candidate = candidateMode === 'parallel'
           ? transposeChordParallel(current, intervals, clef)
           : makeChordWithCommonNotes(current, intervals, clef, candidateMode === 'common2' ? 2 : 1, { modelCounts, previousProfile: previousExerciseProfile });
-        if (canUseChord(candidate)) {
+        if (canUseChord(candidate, { previous: current })) {
           next = candidate;
           break;
         }
@@ -1744,16 +1781,24 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
     if (!next) {
       for (let attempt = 0; attempt < 160 && !next; attempt += 1) {
         const candidate = { ...makeRandomChord(clef, intervals, false, { modelCounts, previousProfile: previousExerciseProfile }), linkMode: 'libre' };
-        if (canUseChord(candidate)) next = candidate;
+        if (canUseChord(candidate, { previous: current })) next = candidate;
       }
     }
     if (!next) {
       for (let attempt = 0; attempt < 220 && !next; attempt += 1) {
         const candidate = { ...makeRandomChord(clef, intervals, false, { modelCounts, previousProfile: previousExerciseProfile }), linkMode: 'libre' };
-        if (canUseChord(candidate, { relaxModelLimit: true })) next = candidate;
+        if (canUseChord(candidate, { previous: current, relaxModelLimit: true, relaxOctaveLimit: true })) next = candidate;
       }
     }
-    next = decorateChord(next ?? { ...makeRandomChord(clef, intervals, false, { modelCounts, previousProfile: previousExerciseProfile }), linkMode: 'libre' }, 'libre');
+    if (!next) {
+      // Último intento sin relajar el control de cruce/solapamiento: preferimos
+      // un acorde nuevo y cercano antes que una disposición que rebase voces contiguas.
+      for (let attempt = 0; attempt < 320 && !next; attempt += 1) {
+        const candidate = { ...makeRandomChord(clef, intervals, false, { modelCounts, previousProfile: previousExerciseProfile }), linkMode: 'libre' };
+        if (canUseChord(candidate, { previous: current, relaxModelLimit: true, relaxOctaveLimit: true })) next = candidate;
+      }
+    }
+    next = decorateChord(next ?? { ...current, linkMode: 'libre' }, 'libre');
     chords.push(next);
     registerChord(next);
     current = next;
