@@ -2998,11 +2998,11 @@ function AppThemeStyles() {
   return (
     <style>{`
       .app-theme-light {
-        --aural-active-bg: #edf8ef;
-        --aural-active-border: #9fceb0;
+        --aural-active-bg: #ecfdf5;
+        --aural-active-border: #a7f3d0;
         --aural-active-text: #18181b;
-        --aural-active-hover: #e4f4e8;
-        --aural-ring: rgba(47, 107, 70, 0.12);
+        --aural-active-hover: #d1fae5;
+        --aural-ring: rgba(16, 185, 129, 0.12);
         --aural-range: #0284c7;
       }
       .aural-active,
