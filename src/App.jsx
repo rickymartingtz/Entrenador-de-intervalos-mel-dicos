@@ -1191,8 +1191,28 @@ function chordVoiceLabel(voice) {
   return CHORD_VOICE_LABELS[voice] ?? voice;
 }
 
+const CONTIGUOUS_CHORD_ENTRY_ORDERS = [
+  ["lower", "middle", "upper"],
+  ["middle", "lower", "upper"],
+  ["middle", "upper", "lower"],
+  ["upper", "middle", "lower"],
+];
+
+function voicesAreContiguous(firstVoice, secondVoice) {
+  const firstIndex = CHORD_VOICES.indexOf(firstVoice);
+  const secondIndex = CHORD_VOICES.indexOf(secondVoice);
+  return firstIndex >= 0 && secondIndex >= 0 && Math.abs(firstIndex - secondIndex) === 1;
+}
+
+function normalizeChordEntryOrder(order) {
+  if (voicesAreContiguous(order[0], order[1])) return order;
+  if (order[0] === "upper") return ["upper", "middle", "lower"];
+  if (order[0] === "lower") return ["lower", "middle", "upper"];
+  return ["middle", "upper", "lower"];
+}
+
 function shuffledChordVoiceOrder() {
-  return [...CHORD_VOICES].sort(() => Math.random() - 0.5);
+  return [...randomItem(CONTIGUOUS_CHORD_ENTRY_ORDERS)];
 }
 
 function getChordEntryOrder(chord) {
@@ -1206,7 +1226,7 @@ function getChordEntryOrder(chord) {
   CHORD_VOICES.forEach((voice) => {
     if (!seen.has(voice)) order.push(voice);
   });
-  return order;
+  return normalizeChordEntryOrder(order);
 }
 
 function chordSignature(chord) {
@@ -1621,7 +1641,8 @@ function initialSettings() {
       harmonicResponseMode: stored.harmonicResponseMode === "full" ? "full" : "givenBass",
       chordEntryMode: stored.chordEntryMode === "direct" ? "direct" : "gradual",
       chordRepeat: typeof stored.chordRepeat === "boolean" ? stored.chordRepeat : DEFAULT_CHORD_REPEAT,
-      chordGapMode: stored.chordGapMode === "noSilence" ? "noSilence" : "withSilence",
+      // La separación de acordes queda fija por ahora: salida gradual + pequeño silencio real.
+      chordGapMode: DEFAULT_CHORD_GAP_MODE,
       selectedChordLinkModes: sanitizeChordLinkModes(stored.selectedChordLinkModes ?? DEFAULT_CHORD_LINK_MODES),
       chordBassInstrument: INSTRUMENTS.some((item) => item.value === stored.chordBassInstrument) ? stored.chordBassInstrument : DEFAULT_CHORD_BASS_INSTRUMENT,
       chordMiddleInstrument: INSTRUMENTS.some((item) => item.value === stored.chordMiddleInstrument) ? stored.chordMiddleInstrument : DEFAULT_CHORD_MIDDLE_INSTRUMENT,
@@ -3210,8 +3231,7 @@ export default function IntervalTrainerPage() {
       const ctx = await ensureAudioContext();
       const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
       // En acordes, el tempo se entiende como negra: la redonda completa dura 4 negras.
-      // Con silencio: cuerpo + salida suave + hueco real, todo dentro de la redonda.
-      // Sin silencio: cuerpo + salida suave, sin hueco añadido.
+      // Acordes: cuerpo + salida suave + hueco real, todo dentro de la redonda.
       // A 43 BPM => evento total ≈ 5.58 s; salida ≈ 0.56 s; silencio real ≈ 0.39 s.
       const chordWholeDuration = secondsPerBeat * 4;
       const chordReleaseDuration = chordWholeDuration * 0.10;
@@ -3757,7 +3777,6 @@ export default function IntervalTrainerPage() {
                       <SelectionChip active={chordEntryMode === "gradual"} onClick={() => setChordEntryMode("gradual")}>Entrada gradual</SelectionChip>
                       <SelectionChip active={chordEntryMode === "direct"} onClick={() => setChordEntryMode("direct")}>Entrada directa</SelectionChip>
                       <SelectionChip active={chordRepeat} onClick={() => setChordRepeat((current) => !current)}>{chordRepeat ? "Con repetición" : "Sin repetición"}</SelectionChip>
-                      <SelectionChip active={chordGapMode === "withSilence"} onClick={() => setChordGapMode((current) => current === "withSilence" ? "noSilence" : "withSilence")}>{chordGapMode === "withSilence" ? "Con silencio" : "Sin silencio"}</SelectionChip>
                     </div>
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
