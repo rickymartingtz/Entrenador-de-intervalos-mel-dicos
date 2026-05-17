@@ -1848,36 +1848,21 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
                 if (item.visible !== false) {
                   groupYs.push(y);
                   if (isChordExercise) {
-                    if (item.role === "lower") {
-                      drawMark(item.status, y, "below");
-                    } else if (item.role === "middle") {
-                      if (item.status === "correct" || item.status === "wrong") {
-                        const color = item.status === "correct" ? "#16a34a" : "#dc2626";
-                        const mark = document.createElementNS(ns, "text");
-                        mark.setAttribute("x", String(noteX));
-                        mark.setAttribute("y", String(y - 18));
-                        mark.setAttribute("text-anchor", "middle");
-                        mark.setAttribute("dominant-baseline", "middle");
-                        mark.setAttribute("font-size", "17");
-                        mark.setAttribute("font-weight", "800");
-                        mark.setAttribute("fill", color);
-                        mark.textContent = item.status === "correct" ? "✓" : "×";
-                        svg.appendChild(mark);
-                      }
-                    } else {
-                      if (item.status === "correct" || item.status === "wrong") {
-                        const color = item.status === "correct" ? "#16a34a" : "#dc2626";
-                        const mark = document.createElementNS(ns, "text");
-                        mark.setAttribute("x", String(noteX));
-                        mark.setAttribute("y", String(y - 36));
-                        mark.setAttribute("text-anchor", "middle");
-                        mark.setAttribute("dominant-baseline", "middle");
-                        mark.setAttribute("font-size", "18");
-                        mark.setAttribute("font-weight", "800");
-                        mark.setAttribute("fill", color);
-                        mark.textContent = item.status === "correct" ? "✓" : "×";
-                        svg.appendChild(mark);
-                      }
+                    const staffTop = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : 34;
+                    const staffBottom = typeof stave.getYForLine === "function" ? stave.getYForLine(4) : 74;
+                    const fixedPlacementY = item.role === "lower" ? staffBottom + 32 : (item.role === "middle" ? staffTop - 24 : staffTop - 46);
+                    if (item.status === "correct" || item.status === "wrong") {
+                      const color = item.status === "correct" ? "#16a34a" : "#dc2626";
+                      const mark = document.createElementNS(ns, "text");
+                      mark.setAttribute("x", String(noteX));
+                      mark.setAttribute("y", String(fixedPlacementY));
+                      mark.setAttribute("text-anchor", "middle");
+                      mark.setAttribute("dominant-baseline", "middle");
+                      mark.setAttribute("font-size", item.role === "middle" ? "17" : "18");
+                      mark.setAttribute("font-weight", "800");
+                      mark.setAttribute("fill", color);
+                      mark.textContent = item.status === "correct" ? "✓" : "×";
+                      svg.appendChild(mark);
                     }
                   } else {
                     drawMark(item.status, y, item.role === "lower" ? "below" : "above");
@@ -2553,6 +2538,8 @@ export default function IntervalTrainerPage() {
   const [timeMarks, setTimeMarks] = useState(savedMarks);
   const [playbackStartIndex, setPlaybackStartIndex] = useState(0);
   const [playbackCursorIndex, setPlaybackCursorIndex] = useState(0);
+  const [loopPlayback, setLoopPlayback] = useState(false);
+  const playbackLoopRef = useRef(false);
 
   const selectedInstrument = useMemo(() => INSTRUMENTS.find((item) => item.value === instrument) ?? INSTRUMENTS.find((item) => item.value === DEFAULT_INSTRUMENT), [instrument]);
   const hasSelectedIntervals = selectedIntervalKeys.length > 0;
@@ -2689,6 +2676,7 @@ export default function IntervalTrainerPage() {
   }, []);
 
   const stopPlayback = useCallback(() => {
+    playbackLoopRef.current = false;
     playbackSessionRef.current += 1;
     if (playbackTimeoutRef.current) {
       window.clearTimeout(playbackTimeoutRef.current);
@@ -2822,7 +2810,7 @@ export default function IntervalTrainerPage() {
     activeFallbackNodesRef.current.push({ oscillators, gains, filters, masterGain });
   }, []);
 
-  const playExercise = useCallback(async (exerciseToPlay = exercise, startEventIndex = 0) => {
+  const playExercise = useCallback(async (exerciseToPlay = exercise, startEventIndex = 0, loopFromSelection = false) => {
     const isHarmonic = exerciseToPlay?.type === "harmonic";
     const isChordExercise = exerciseToPlay?.type === "chords";
     const sessionId = playbackSessionRef.current + 1;
@@ -2839,7 +2827,8 @@ export default function IntervalTrainerPage() {
       const chordGapBeats = isChordExercise ? (chordGapMode === "noSilence" ? 0 : 1) : 0;
       const step = isChordExercise ? secondsPerBeat * (chordSoundBeats + chordGapBeats) : secondsPerBeat;
       const baseDuration = isChordExercise ? secondsPerBeat * chordSoundBeats : step * 0.92;
-      const tailSeconds = isChordExercise ? secondsPerBeat * (chordGapMode === "noSilence" ? 0.55 : 1.25) : secondsPerBeat * 0.18;
+      const tailSeconds = isChordExercise ? secondsPerBeat * (chordGapMode === "noSilence" ? 0.28 : 0.72) : secondsPerBeat * 0.18;
+      playbackLoopRef.current = Boolean(loopFromSelection && isChordExercise);
       const gain = Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
       const instrumentConfigs = isChordExercise
         ? {
@@ -2913,7 +2902,7 @@ export default function IntervalTrainerPage() {
         eventNotes.forEach(({ note, instrument: instrumentConfig }) => {
           const config = instrumentConfig ?? selectedInstrument;
           const sfInstrument = sfMap.get(config.value);
-          const duration = config?.sustain ? Math.max(0.24, baseDuration + tailSeconds) : Math.max(0.2, baseDuration + tailSeconds * 0.85);
+          const duration = config?.sustain ? Math.max(0.24, baseDuration + tailSeconds) : Math.max(0.2, baseDuration + tailSeconds * 0.65);
           if (sfInstrument) {
             const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, { duration, gain });
             activePlayersRef.current.push(player);
@@ -2926,10 +2915,14 @@ export default function IntervalTrainerPage() {
       if (playbackTimeoutRef.current) window.clearTimeout(playbackTimeoutRef.current);
       playbackTimeoutRef.current = window.setTimeout(() => {
         if (sessionId === playbackSessionRef.current) {
-          setIsPlaying(false);
           playbackTimeoutRef.current = null;
+          if (playbackLoopRef.current && isChordExercise) {
+            playExercise(exerciseToPlay, safeStartIndex, true);
+          } else {
+            setIsPlaying(false);
+          }
         }
-      }, scheduledEvents.length * step * 1000 + tailSeconds * 1000 + 750);
+      }, scheduledEvents.length * step * 1000 + tailSeconds * 1000 + 650);
     } catch (error) {
       console.error("Error al reproducir:", error);
       if (sessionId === playbackSessionRef.current) setIsPlaying(false);
@@ -2968,6 +2961,9 @@ export default function IntervalTrainerPage() {
         }
       }));
       if (sessionId !== playbackSessionRef.current) return;
+      const secondsPerBeat = 60 / clamp(tempo, MIN_TEMPO, MAX_TEMPO);
+      const isChordPreview = items.length > 1 && items.some((item) => ["lower", "middle", "upper"].includes(item.voice));
+      const chordPreviewDuration = secondsPerBeat * 13 + secondsPerBeat * 0.55;
       const start = ctx.currentTime + 0.06;
       items.forEach((item, index) => {
         const note = item.note;
@@ -3217,6 +3213,7 @@ export default function IntervalTrainerPage() {
     } else if (trainerMode === "chords") {
       setUseTwelveToneSeries(false);
       setNoteCount((current) => clamp(current, CHORD_MIN_COUNT, CHORD_MAX_COUNT));
+      setTempo((current) => current === DEFAULT_TEMPO ? 150 : current);
     }
   }, [trainerMode]);
 
@@ -3425,20 +3422,29 @@ export default function IntervalTrainerPage() {
                 ) : null}
               </div>
 
-              {playbackEvents.length > 1 ? (
+              {isChordMode && playbackEvents.length > 1 ? (
                 <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 shadow-sm sm:px-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Línea de reproducción</p>
                       <p className="text-sm font-semibold text-zinc-800">{playbackEvents[isPlaying ? playbackCursorIndex : playbackStartIndex]?.label ?? 'Inicio'}</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => playExercise(exercise, playbackStartIndex)}
-                      className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
-                    >
-                      Escuchar desde aquí
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLoopPlayback((current) => !current)}
+                        className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${loopPlayback ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
+                      >
+                        Bucle
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => isPlaying ? stopPlayback() : playExercise(exercise, playbackStartIndex, loopPlayback)}
+                        className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${isPlaying ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
+                      >
+                        {isPlaying ? "Detener" : "Escuchar desde aquí"}
+                      </button>
+                    </div>
                   </div>
                   <input
                     type="range"
