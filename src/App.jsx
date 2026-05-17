@@ -111,6 +111,7 @@ const MAX_VOLUME = 100;
 const DEFAULT_VOLUME = 50;
 const INTERNAL_VOLUME_BOOST = 9.0;
 const SOUNDFONT_GAIN_BOOST = 16.0;
+const CHORD_SOUNDFONT_GAIN_BOOST = 8.0;
 const DEFAULT_INSTRUMENT = "piano";
 const DEFAULT_INTERVAL_KEYS = ["P4", "P5", "P8"];
 const DEFAULT_CLEF_KEYS = ["treble"];
@@ -3005,6 +3006,9 @@ export default function IntervalTrainerPage() {
   useEffect(() => {
     const current = audioOutputRef.current;
     if (!current?.context || !current?.input) return;
+    // En acordes aplicamos el volumen en dos niveles: aquí como ganancia maestra
+    // para que responda mientras está sonando, y también en el gain de cada
+    // sample al programarlo para evitar depender solo de esta ruta global.
     const scalar = isPlaying && exercise?.type === "chords"
       ? clamp(Number(volume), MIN_VOLUME, MAX_VOLUME) / 100
       : 1;
@@ -3270,9 +3274,10 @@ export default function IntervalTrainerPage() {
       const baseDuration = isChordExercise ? chordAudibleDuration : step * 0.92;
       const fadeTailSeconds = isChordExercise ? chordReleaseDuration + chordSilenceDuration : secondsPerBeat * 0.18;
       playbackLoopRef.current = Boolean(loopFromSelection && isChordExercise);
-      const gain = isChordExercise
-        ? SOUNDFONT_GAIN_BOOST
-        : Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
+      const gain = Math.max(
+        0,
+        (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * (isChordExercise ? CHORD_SOUNDFONT_GAIN_BOOST : SOUNDFONT_GAIN_BOOST)
+      );
       const instrumentConfigs = isChordExercise
         ? {
             lower: getInstrumentConfig(chordBassInstrument),
@@ -3380,7 +3385,7 @@ export default function IntervalTrainerPage() {
               activePlayersRef.current.push(player);
             }
           } else {
-            createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, isChordExercise ? 100 : volume);
+            createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, volume);
           }
         });
       });
@@ -3417,9 +3422,10 @@ export default function IntervalTrainerPage() {
       const ctx = await ensureAudioContext();
       const isChordPreview = items.length > 1 && items.some((item) => ["lower", "middle", "upper"].includes(item.voice));
       setAudioOutputVolume(ctx, isChordPreview ? volume : 100);
-      const gain = isChordPreview
-        ? SOUNDFONT_GAIN_BOOST
-        : Math.max(0, (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * SOUNDFONT_GAIN_BOOST);
+      const gain = Math.max(
+        0,
+        (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * (isChordPreview ? CHORD_SOUNDFONT_GAIN_BOOST : SOUNDFONT_GAIN_BOOST)
+      );
       const configs = items.map((item) => {
         if (item.voice === "lower") return getInstrumentConfig(chordBassInstrument);
         if (item.voice === "middle") return getInstrumentConfig(chordMiddleInstrument);
@@ -3475,7 +3481,7 @@ export default function IntervalTrainerPage() {
             activePlayersRef.current.push(player);
           }
         } else {
-          createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, isChordPreview ? 100 : volume);
+          createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, volume);
         }
       });
     } catch (error) {
