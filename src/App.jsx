@@ -1796,7 +1796,9 @@ function ActionButton({ active, onClick, children, disabled = false }) {
       className={`inline-flex min-h-[44px] w-full items-center justify-center gap-2 whitespace-nowrap rounded-2xl border px-4 py-3 text-sm font-semibold transition sm:w-auto sm:px-5 ${
         disabled
           ? "border-zinc-300 bg-white text-zinc-400"
-          : "aural-black-button"
+          : active
+            ? "aural-black-button"
+            : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-50"
       } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
     >
       {children}
@@ -2837,8 +2839,8 @@ function TunerPanel({ notes = [], visible = false }) {
     <div className={`mx-auto mt-2 w-full max-w-none rounded-2xl border p-2.5 transition ${completedFlash ? "border-emerald-400 bg-emerald-50/90" : inTune ? "border-emerald-300 bg-emerald-50/70" : "border-zinc-200 bg-zinc-50"}`}>
       <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_auto_1fr]">
         <div className="flex flex-wrap items-center justify-center gap-1.5 sm:justify-start">
-          <button type="button" onClick={() => setMode("study")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${mode === "study" ? "aural-active" : "border-zinc-300 bg-white text-zinc-700"}`}>Estudio</button>
-          <button type="button" onClick={() => setMode("free")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${mode === "free" ? "aural-active" : "border-zinc-300 bg-white text-zinc-700"}`}>Libre</button>
+          <button type="button" onClick={() => setMode("study")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${mode === "study" ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-50"}`}>Estudio</button>
+          <button type="button" onClick={() => setMode("free")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${mode === "free" ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-50"}`}>Libre</button>
           {mode === "study" ? <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">{targetIndex + 1}/{notes.length}</span> : null}
         </div>
 
@@ -2900,7 +2902,7 @@ function TunerPanel({ notes = [], visible = false }) {
                     type="button"
                     key={seconds}
                     onClick={() => setHoldSeconds(seconds)}
-                    className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${holdSeconds === seconds ? "aural-active" : "border-zinc-300 bg-white text-zinc-700"}`}
+                    className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition ${holdSeconds === seconds ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-50"}`}
                   >
                     {seconds}s
                   </button>
@@ -2915,7 +2917,7 @@ function TunerPanel({ notes = [], visible = false }) {
               </div>
             </>
           ) : null}
-          {isListening ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">Mic activo</span> : <button type="button" onClick={startListening} className="aural-primary rounded-full border px-3 py-1 text-[11px] font-semibold">Activar micrófono</button>}
+          {isListening ? <span className="aural-active rounded-full border px-2.5 py-1 text-[11px] font-semibold">Mic activo</span> : <button type="button" onClick={startListening} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-50">Activar micrófono</button>}
         </div>
       </div>
 
@@ -4243,7 +4245,7 @@ export default function IntervalTrainerPage() {
                       <button
                         type="button"
                         onClick={() => isPlaying ? stopPlayback() : playExercise(exercise, playbackStartIndex, false)}
-                        className="aural-black-button rounded-xl border px-3 py-2 text-xs font-semibold transition"
+                        className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${isPlaying ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-50"}`}
                       >
                         {isPlaying ? "Detener" : "Escuchar desde aquí"}
                       </button>
