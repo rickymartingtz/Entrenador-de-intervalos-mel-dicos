@@ -1794,9 +1794,9 @@ function ActionButton({ active, onClick, children, disabled = false }) {
       onClick={onClick}
       disabled={disabled}
       className={`inline-flex min-h-[44px] w-full items-center justify-center gap-2 whitespace-nowrap rounded-2xl border px-4 py-3 text-sm font-semibold transition sm:w-auto sm:px-5 ${
-        active
-          ? "aural-active shadow-sm"
-          : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-100"
+        disabled
+          ? "border-zinc-300 bg-white text-zinc-400"
+          : "aural-black-button"
       } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
     >
       {children}
@@ -3014,6 +3014,16 @@ function AppThemeStyles() {
       .aural-primary:hover {
         background-color: var(--aural-active-hover) !important;
         border-color: var(--aural-active-border) !important;
+      }
+      .aural-black-button {
+        background-color: #18181b !important;
+        border-color: #18181b !important;
+        color: #ffffff !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.08) !important;
+      }
+      .aural-black-button:hover {
+        background-color: #27272a !important;
+        border-color: #27272a !important;
       }
       .aural-mode-active {
         background-color: #18181b !important;
@@ -4233,7 +4243,7 @@ export default function IntervalTrainerPage() {
                       <button
                         type="button"
                         onClick={() => isPlaying ? stopPlayback() : playExercise(exercise, playbackStartIndex, false)}
-                        className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${isPlaying ? "aural-active" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
+                        className="aural-black-button rounded-xl border px-3 py-2 text-xs font-semibold transition"
                       >
                         {isPlaying ? "Detener" : "Escuchar desde aquí"}
                       </button>
