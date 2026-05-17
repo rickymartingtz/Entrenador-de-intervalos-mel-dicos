@@ -2634,18 +2634,7 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
 
   return (
     <div className={`rounded-xl border bg-white p-2 transition ${completed ? "border-emerald-400 bg-emerald-50 shadow-[0_0_0_1px_rgba(16,185,129,0.22)]" : inTune ? "border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.18)]" : "border-zinc-200"}`}>
-      <div className="mb-1 flex items-baseline justify-between gap-3">
-        <div className="min-w-0">
-          <p className={`truncate font-semibold leading-none ${compact ? "text-xl" : "text-2xl"} ${valid || micEnabled ? "text-zinc-950" : "text-zinc-400"}`}>{label || "—"}</p>
-          {sublabel ? <p className="mt-1 truncate text-[10px] font-medium text-zinc-500">{sublabel}</p> : null}
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {completed ? <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">✓</span> : null}
-          <p className={`text-xs font-semibold tabular-nums ${inTune ? "text-emerald-700" : valid ? "text-zinc-500" : "text-zinc-300"}`}>{valid ? `${cents >= 0 ? "+" : ""}${cents.toFixed(1)}¢` : "—"}</p>
-        </div>
-      </div>
-
-      <div className="relative h-12 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50">
+      <div className="relative h-16 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 sm:h-[4.75rem]">
         <canvas ref={canvasRef} className="block h-full w-full" />
         <div className="pointer-events-none absolute inset-y-0 rounded-sm bg-emerald-300/28" style={{ left: `${bandLeft}%`, width: `${bandWidth}%` }} />
         <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-zinc-900/45" />
@@ -2698,7 +2687,6 @@ function TunerPanel({ notes = [], visible = false }) {
   const samePitchClass = mode !== "study" || !targetNote || (detectedMidi != null && pitchClassOf(detectedMidi) === pitchClassOf(targetNote));
   const inTune = Number.isFinite(cents) && Math.abs(cents) <= IN_TUNE_THRESHOLD && samePitchClass;
   const activeNoteName = mode === "study" && targetNote ? targetNote.label : detectedLabel;
-  const activeTuningRole = mode === "study" && targetNote?.tuningRole ? targetNote.tuningRole : "";
 
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { targetIndexRef.current = targetIndex; }, [targetIndex]);
@@ -2921,6 +2909,12 @@ function TunerPanel({ notes = [], visible = false }) {
           <button type="button" onClick={() => setMode("study")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${mode === "study" ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-50"}`}>Estudio</button>
           <button type="button" onClick={() => setMode("free")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${mode === "free" ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-50"}`}>Libre</button>
           {mode === "study" ? <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">{targetIndex + 1}/{notes.length}</span> : null}
+          {mode === "study" && detectedLabel !== "—" ? (
+            <span className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700 shadow-sm">
+              <span className="text-zinc-400">Detectada</span>
+              <span className="tabular-nums text-zinc-950">{detectedLabel}</span>
+            </span>
+          ) : null}
         </div>
 
         <div className="text-center">
@@ -2929,17 +2923,15 @@ function TunerPanel({ notes = [], visible = false }) {
               <button type="button" onClick={() => setTargetManually(targetIndexRef.current - 1)} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">←</button>
               <div className="min-w-[92px] text-center">
                 <div className={`text-2xl font-bold leading-none tracking-tight sm:text-3xl ${completedFlash ? "text-emerald-700" : "text-zinc-950"}`}>{activeNoteName}</div>
-                {activeTuningRole ? <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">{activeTuningRole}</div> : null}
               </div>
               <button type="button" onClick={() => setTargetManually(targetIndexRef.current + 1)} className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700">→</button>
             </div>
           ) : (
             <div className="min-w-[92px] text-center text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
           )}
-          <div className="mt-1 flex items-center justify-center gap-2 text-[11px] font-medium text-zinc-500">
-            <span>{Number.isFinite(cents) ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents` : "—"}</span>
-            {mode === "study" && detectedLabel !== "—" ? <span className="text-zinc-400">detectada: {detectedLabel}</span> : null}
-            {completedFlash ? <span className="font-bold text-emerald-700">✓</span> : null}
+          <div className="mt-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold text-zinc-500">
+            <span className="tabular-nums">{Number.isFinite(cents) ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents` : "—"}</span>
+            {completedFlash ? <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold leading-none text-white">✓</span> : null}
           </div>
         </div>
 
