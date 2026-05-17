@@ -105,7 +105,7 @@ const MIN_TEMPO = 30;
 const MAX_TEMPO = 200;
 const DEFAULT_NOTE_COUNT = 4;
 const DEFAULT_TEMPO = 50;
-const DEFAULT_CHORD_TEMPO = 150;
+const DEFAULT_CHORD_TEMPO = 50;
 const MIN_VOLUME = 0;
 const MAX_VOLUME = 100;
 const DEFAULT_VOLUME = 50;
@@ -114,6 +114,7 @@ const SOUNDFONT_GAIN_BOOST = 16.0;
 const CHORD_SOUNDFONT_GAIN_BOOST = 8.0;
 const DEFAULT_INSTRUMENT = "piano";
 const DEFAULT_INTERVAL_KEYS = ["P4", "P5", "P8"];
+const DEFAULT_CHORD_INTERVAL_KEYS = ["P4", "P5", "P8"];
 const DEFAULT_CLEF_KEYS = ["treble"];
 const DEFAULT_DIRECTION_MODE = "random";
 const DEFAULT_TRAINER_MODE = "melodic";
@@ -177,7 +178,7 @@ function resolveChordInstrumentPreset(key) {
   }
   return preset;
 }
-const SETTINGS_KEY = "intervalTrainer.settings.v11";
+const SETTINGS_KEY = "intervalTrainer.settings.v13";
 const STATS_KEY = "intervalTrainer.stats.v11";
 const MARKS_KEY = "intervalTrainer.marks.v12";
 const SOUNDFONT_LIBRARY = "MusyngKite";
@@ -670,6 +671,22 @@ function sanitizeIntervalSelection(keys) {
   return [...new Set(keys)].filter((key) => valid.includes(key));
 }
 
+function intervalKeySetSignature(keys) {
+  return sanitizeIntervalSelection(keys).slice().sort().join("|");
+}
+
+function sameIntervalKeySet(a, b) {
+  return intervalKeySetSignature(a) === intervalKeySetSignature(b);
+}
+
+function defaultIntervalKeysForMode(mode) {
+  return mode === "chords" ? DEFAULT_CHORD_INTERVAL_KEYS : DEFAULT_INTERVAL_KEYS;
+}
+
+function harmonicBassMotionIntervalKeys(selectedIntervalKeys) {
+  return [...new Set([...sanitizeIntervalSelection(selectedIntervalKeys), "m2", "M2"])];
+}
+
 function sanitizeClefSelection(keys) {
   const valid = CLEFS.map((item) => item.key);
   const cleaned = [...new Set(keys)].filter((key) => valid.includes(key));
@@ -1123,8 +1140,8 @@ function makeHarmonicPairFromLower(lower, selectedIntervalKeys, clef, previousPa
 
 function getHarmonicBassMoves(previousPair, selectedIntervalKeys, clef) {
   if (!previousPair?.lower) return [];
-  const intervals = sanitizeIntervalSelection(selectedIntervalKeys).map(getIntervalDefinition).filter(Boolean);
-  const usable = intervals.length ? intervals : DEFAULT_INTERVAL_KEYS.map(getIntervalDefinition).filter(Boolean);
+  const intervals = harmonicBassMotionIntervalKeys(selectedIntervalKeys).map(getIntervalDefinition).filter(Boolean);
+  const usable = intervals.length ? intervals : [...DEFAULT_INTERVAL_KEYS, "m2", "M2"].map(getIntervalDefinition).filter(Boolean);
   const moves = [];
   const seen = new Set();
   const addMove = (note, intervalKey = "static", direction = 0) => {
@@ -1217,6 +1234,29 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
     }
 
     if (!pair) {
+      const fallbackIntervals = (intervals.length ? intervals : DEFAULT_INTERVAL_KEYS)
+        .map(getIntervalDefinition)
+        .filter(Boolean);
+      const lowerCandidates = shuffleWithOctaveDeprioritized((fallbackPool.length ? fallbackPool : lowerPool).filter(Boolean));
+      const intervalCandidates = shuffleWithOctaveDeprioritized(fallbackIntervals, (interval) => interval?.key);
+      for (const lower of lowerCandidates) {
+        for (const fallbackInterval of intervalCandidates) {
+          if (!lower || !fallbackInterval) continue;
+          const upper = transposeNote(lower, fallbackInterval, 1, clef);
+          const candidate = upper ? { lower, upper, intervalKey: fallbackInterval.key, intervalShort: fallbackInterval.short } : null;
+          if (!candidate || !canUseHarmonicPair(candidate)) continue;
+          if (previousPair && (candidate.lower.midi > previousPair.upper.midi || candidate.upper.midi < previousPair.lower.midi)) continue;
+          pair = candidate;
+          break;
+        }
+        if (pair) break;
+      }
+    }
+
+    if (!pair) {
+      // Último recurso: si el registro ya no permite más combinaciones únicas,
+      // generamos un intervalo válido aunque pueda repetir. En condiciones normales
+      // no se llega aquí, porque se prueban primero todas las combinaciones únicas.
       const lower = randomItem(lowerPool.length ? lowerPool : fallbackPool);
       const fallbackInterval = getIntervalDefinition(intervals.includes("P4") ? "P4" : (intervals[0] ?? "P5")) ?? getIntervalDefinition("P5");
       const upper = transposeNote(lower, fallbackInterval, 1, clef) ?? midiToSimpleNote(clamp(lower.midi + fallbackInterval.semitones, clef.minMidi, clef.maxMidi));
@@ -1341,7 +1381,7 @@ function chordContainsDeprioritizedOctave(chord, selectedIntervalKeys) {
 
 function makeChordFromLower(lower, selectedIntervalKeys, clef) {
   const intervals = sanitizeIntervalSelection(selectedIntervalKeys).map(getIntervalDefinition).filter(Boolean);
-  const usable = intervals.length ? intervals : DEFAULT_INTERVAL_KEYS.map(getIntervalDefinition).filter(Boolean);
+  const usable = intervals.length ? intervals : DEFAULT_CHORD_INTERVAL_KEYS.map(getIntervalDefinition).filter(Boolean);
   for (let attempt = 0; attempt < 120; attempt += 1) {
     const first = pickIntervalDefinition(usable);
     const second = pickIntervalDefinition(usable);
@@ -1429,7 +1469,8 @@ function makeChordWithCommonNotes(previousChord, selectedIntervalKeys, clef, com
 
 function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, selectedLinkModes = DEFAULT_CHORD_LINK_MODES) {
   const safeCount = clamp(chordCount, CHORD_MIN_COUNT, CHORD_MAX_COUNT);
-  const intervals = sanitizeIntervalSelection(selectedIntervalKeys);
+  const sanitizedIntervals = sanitizeIntervalSelection(selectedIntervalKeys);
+  const intervals = sanitizedIntervals.length ? sanitizedIntervals : DEFAULT_CHORD_INTERVAL_KEYS;
   const clefKey = randomItem(sanitizeClefSelection(selectedClefKeys));
   const clef = getClefConfig(clefKey);
   const linkModes = sanitizeChordLinkModes(selectedLinkModes);
@@ -1672,7 +1713,7 @@ function initialSettings() {
     tempo: DEFAULT_TEMPO,
     volume: DEFAULT_VOLUME,
     instrument: DEFAULT_INSTRUMENT,
-    selectedIntervalKeys: DEFAULT_INTERVAL_KEYS,
+    selectedIntervalKeys: defaultIntervalKeysForMode(DEFAULT_TRAINER_MODE),
     selectedClefKeys: DEFAULT_CLEF_KEYS,
     directionMode: DEFAULT_DIRECTION_MODE,
     useTwelveToneSeries: false,
@@ -1690,17 +1731,19 @@ function initialSettings() {
   try {
     const stored = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) || "null");
     if (!stored) return defaults;
+    const storedMode = ["melodic", "harmonic", "chords"].includes(stored.trainerMode) ? stored.trainerMode : defaults.trainerMode;
+    const intervalFallback = defaultIntervalKeysForMode(storedMode);
     return {
       ...defaults,
       ...stored,
-      selectedIntervalKeys: sanitizeIntervalSelection(stored.selectedIntervalKeys ?? defaults.selectedIntervalKeys),
+      selectedIntervalKeys: sanitizeIntervalSelection(stored.selectedIntervalKeys ?? intervalFallback),
       selectedClefKeys: sanitizeClefSelection(stored.selectedClefKeys ?? defaults.selectedClefKeys),
       directionMode: sanitizeDirectionMode(stored.directionMode ?? defaults.directionMode, Number(stored.noteCount ?? defaults.noteCount)),
       noteCount: clamp(Number(stored.noteCount ?? defaults.noteCount), MIN_NOTES, MAX_NOTES),
       tempo: clamp(Number(stored.tempo ?? defaults.tempo), MIN_TEMPO, MAX_TEMPO),
       volume: clamp(Number(stored.volume ?? defaults.volume), MIN_VOLUME, MAX_VOLUME),
       instrument: INSTRUMENTS.some((item) => item.value === stored.instrument) ? stored.instrument : DEFAULT_INSTRUMENT,
-      trainerMode: ["melodic", "harmonic", "chords"].includes(stored.trainerMode) ? stored.trainerMode : "melodic",
+      trainerMode: storedMode,
       harmonicResponseMode: stored.harmonicResponseMode === "full" ? "full" : "givenBass",
       chordEntryMode: stored.chordEntryMode === "direct" ? "direct" : "gradual",
       chordRepeat: typeof stored.chordRepeat === "boolean" ? stored.chordRepeat : DEFAULT_CHORD_REPEAT,
@@ -3061,7 +3104,7 @@ export default function IntervalTrainerPage() {
   const [tempo, setTempo] = useState(saved?.tempo ?? DEFAULT_TEMPO);
   const [volume, setVolume] = useState(saved?.volume ?? DEFAULT_VOLUME);
   const [instrument, setInstrument] = useState(saved?.instrument ?? DEFAULT_INSTRUMENT);
-  const [selectedIntervalKeys, setSelectedIntervalKeys] = useState(saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS);
+  const [selectedIntervalKeys, setSelectedIntervalKeys] = useState(saved?.selectedIntervalKeys ?? defaultIntervalKeysForMode(saved?.trainerMode ?? DEFAULT_TRAINER_MODE));
   const [selectedClefKeys, setSelectedClefKeys] = useState(saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS);
   const [directionMode, setDirectionMode] = useState(saved?.directionMode ?? DEFAULT_DIRECTION_MODE);
   const [useTwelveToneSeries, setUseTwelveToneSeries] = useState(saved?.useTwelveToneSeries ?? false);
@@ -3078,7 +3121,7 @@ export default function IntervalTrainerPage() {
   const [exercise, setExercise] = useState(() => {
     const mode = saved?.trainerMode ?? DEFAULT_TRAINER_MODE;
     if (mode === "chords") {
-      return buildChordSequence(clamp(saved?.noteCount ?? 4, CHORD_MIN_COUNT, CHORD_MAX_COUNT), saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS, saved?.selectedChordLinkModes ?? DEFAULT_CHORD_LINK_MODES);
+      return buildChordSequence(clamp(saved?.noteCount ?? 4, CHORD_MIN_COUNT, CHORD_MAX_COUNT), saved?.selectedIntervalKeys ?? DEFAULT_CHORD_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS, saved?.selectedChordLinkModes ?? DEFAULT_CHORD_LINK_MODES);
     }
     if (mode === "harmonic") {
       return buildHarmonicSequence(clamp(saved?.noteCount ?? 4, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS), saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS);
@@ -4018,8 +4061,18 @@ export default function IntervalTrainerPage() {
     } else if (trainerMode === "chords") {
       setUseTwelveToneSeries(false);
       setNoteCount((current) => clamp(current, CHORD_MIN_COUNT, CHORD_MAX_COUNT));
-      setTempo((current) => current === DEFAULT_TEMPO ? 150 : current);
+      setTempo((current) => current === DEFAULT_TEMPO ? DEFAULT_CHORD_TEMPO : current);
     }
+  }, [trainerMode]);
+
+  const changeTrainerMode = useCallback((nextMode) => {
+    setSelectedIntervalKeys((current) => {
+      const currentModeDefault = defaultIntervalKeysForMode(trainerMode);
+      const nextModeDefault = defaultIntervalKeysForMode(nextMode);
+      if (sameIntervalKeySet(current, currentModeDefault)) return nextModeDefault;
+      return current;
+    });
+    setTrainerMode(nextMode);
   }, [trainerMode]);
 
   const instrumentMountRef = useRef(false);
@@ -4049,7 +4102,7 @@ export default function IntervalTrainerPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.34em] text-zinc-500 sm:text-sm">MÉTODO AURAL</p>
               <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl">Entrenador de intervalos</h1>
             </div>
-            <div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => setTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "aural-mode-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => setTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "aural-mode-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button><button type="button" onClick={() => setTrainerMode("chords")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "chords" ? "aural-mode-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Acordes</button></div>
+            <div className="flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm"><button type="button" onClick={() => changeTrainerMode("melodic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "melodic" ? "aural-mode-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Melódicos</button><button type="button" onClick={() => changeTrainerMode("harmonic")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "harmonic" ? "aural-mode-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Armónicos</button><button type="button" onClick={() => changeTrainerMode("chords")} className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${trainerMode === "chords" ? "aural-mode-active" : "text-zinc-600 hover:bg-zinc-100"}`}>Acordes</button></div>
           </div>
         </header>
 
