@@ -754,6 +754,35 @@ function intervalShortBetweenNotes(lower, upper, allowedIntervalKeys = []) {
   return key ? getIntervalDefinition(key)?.short : null;
 }
 
+function qualityShortFromNumberAndSemitones(intervalNumber, semitones) {
+  if (!Number.isFinite(intervalNumber) || !Number.isFinite(semitones) || intervalNumber < 1 || semitones < 0) return null;
+  const octaveLayers = Math.floor((intervalNumber - 1) / 7);
+  const simpleNumber = ((intervalNumber - 1) % 7) + 1;
+  const simpleSemitones = semitones - 12 * octaveLayers;
+
+  const qualityBySimpleNumber = {
+    1: { 0: "J", 1: "aum" },
+    2: { 0: "dis", 1: "m", 2: "M", 3: "aum" },
+    3: { 2: "dis", 3: "m", 4: "M", 5: "aum" },
+    4: { 4: "dis", 5: "J", 6: "aum" },
+    5: { 6: "dis", 7: "J", 8: "aum" },
+    6: { 7: "dis", 8: "m", 9: "M", 10: "aum" },
+    7: { 9: "dis", 10: "m", 11: "M" },
+  };
+
+  return qualityBySimpleNumber[simpleNumber]?.[simpleSemitones] ?? null;
+}
+
+function compoundIntervalShortBetweenNotes(lower, upper) {
+  if (!lower || !upper || upper.midi <= lower.midi) return null;
+  const semitones = upper.midi - lower.midi;
+  const diatonicDistance = diatonicIndex(upper.letter, upper.octave) - diatonicIndex(lower.letter, lower.octave);
+  const intervalNumber = diatonicDistance + 1;
+  const quality = qualityShortFromNumberAndSemitones(intervalNumber, semitones);
+  if (!quality) return `${semitones} st`;
+  return `${intervalNumber}${quality}`;
+}
+
 function getTransitionData(sequence, allowedIntervalKeys = []) {
   if (!Array.isArray(sequence) || sequence.length < 2) return [];
   return sequence.slice(1).map((note, index) => {
@@ -1067,6 +1096,11 @@ function buildTwelveToneSeries(noteCount, selectedIntervalKeys, selectedClefKeys
 }
 
 
+function harmonicPairSignature(pair) {
+  if (!pair?.lower || !pair?.upper) return "";
+  return `${pair.lower.midi}-${pair.upper.midi}`;
+}
+
 function makeHarmonicPairFromLower(lower, selectedIntervalKeys, clef, previousPair = null) {
   const intervals = sanitizeIntervalSelection(selectedIntervalKeys).map(getIntervalDefinition).filter(Boolean);
   const usable = intervals.length ? intervals : DEFAULT_INTERVAL_KEYS.map(getIntervalDefinition).filter(Boolean);
@@ -1121,6 +1155,19 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
   const lowerPool = (central.length ? central : all).filter((note) => note.midi <= clef.maxMidi - 1);
   const fallbackPool = all.filter((note) => note.midi <= clef.maxMidi - 1);
   const pairs = [];
+  const usedPairSignatures = new Set();
+
+  const canUseHarmonicPair = (candidate) => {
+    if (!candidate?.lower || !candidate?.upper) return false;
+    const sig = harmonicPairSignature(candidate);
+    if (!sig || usedPairSignatures.has(sig)) return false;
+    return true;
+  };
+
+  const registerHarmonicPair = (candidate) => {
+    const sig = harmonicPairSignature(candidate);
+    if (sig) usedPairSignatures.add(sig);
+  };
 
   for (let i = 0; i < safeCount; i += 1) {
     const previousPair = pairs[pairs.length - 1] ?? null;
@@ -1132,7 +1179,7 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
         const move = pickWithOctaveDeprioritized(bassMoves, (item) => item.intervalKey);
         if (!move?.note) continue;
         const candidate = makeHarmonicPairFromLower(move.note, intervals, clef, previousPair);
-        if (!candidate) continue;
+        if (!candidate || !canUseHarmonicPair(candidate)) continue;
         pair = {
           ...candidate,
           bassMotionKey: move.intervalKey,
@@ -1143,14 +1190,29 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
     } else {
       for (let attempt = 0; attempt < 120 && !pair; attempt += 1) {
         const lower = randomItem(lowerPool.length ? lowerPool : fallbackPool);
-        pair = makeHarmonicPairFromLower(lower, intervals, clef, null);
+        const candidate = makeHarmonicPairFromLower(lower, intervals, clef, null);
+        if (canUseHarmonicPair(candidate)) pair = candidate;
       }
     }
 
     if (!pair) {
       for (let attempt = 0; attempt < 220 && !pair; attempt += 1) {
         const lower = randomItem(lowerPool.length ? lowerPool : fallbackPool);
-        pair = makeHarmonicPairFromLower(lower, intervals, clef, previousPair);
+        const candidate = makeHarmonicPairFromLower(lower, intervals, clef, previousPair);
+        if (canUseHarmonicPair(candidate)) pair = candidate;
+      }
+    }
+
+    if (!pair) {
+      const fallbackIntervals = (intervals.length ? intervals : DEFAULT_INTERVAL_KEYS)
+        .map(getIntervalDefinition)
+        .filter(Boolean);
+      for (let attempt = 0; attempt < 320 && !pair; attempt += 1) {
+        const lower = randomItem(fallbackPool.length ? fallbackPool : lowerPool);
+        const fallbackInterval = pickIntervalDefinition(fallbackIntervals) ?? getIntervalDefinition("P5");
+        const upper = transposeNote(lower, fallbackInterval, 1, clef);
+        const candidate = upper ? { lower, upper, intervalKey: fallbackInterval.key, intervalShort: fallbackInterval.short } : null;
+        if (canUseHarmonicPair(candidate)) pair = candidate;
       }
     }
 
@@ -1162,6 +1224,7 @@ function buildHarmonicSequence(pairCount, selectedIntervalKeys, selectedClefKeys
     }
 
     pairs.push(pair);
+    registerHarmonicPair(pair);
   }
 
   return {
@@ -1249,14 +1312,13 @@ function chordIntervals(chord, allowedIntervalKeys = []) {
   if (voices.length < 3) return [];
   const lowerMiddle = voices[1].midi - voices[0].midi;
   const middleUpper = voices[2].midi - voices[1].midi;
-  const totalSpan = voices[2].midi - voices[0].midi;
   const intervalAKey = intervalKeyBetweenNotes(voices[0], voices[1], allowedIntervalKeys);
   const intervalBKey = intervalKeyBetweenNotes(voices[1], voices[2], allowedIntervalKeys);
   const intervalA = intervalAKey ? getIntervalDefinition(intervalAKey) : getIntervalBySemitones(lowerMiddle % 12 === 0 && lowerMiddle > 0 ? 12 : lowerMiddle, allowedIntervalKeys);
   const intervalB = intervalBKey ? getIntervalDefinition(intervalBKey) : getIntervalBySemitones(middleUpper % 12 === 0 && middleUpper > 0 ? 12 : middleUpper, allowedIntervalKeys);
-  const total = getIntervalBySemitones(totalSpan % 12 === 0 && totalSpan > 0 ? 12 : totalSpan, allowedIntervalKeys);
+  const total = compoundIntervalShortBetweenNotes(voices[0], voices[2]);
   const compact = `${intervalA?.short ?? `${lowerMiddle} st`} + ${intervalB?.short ?? `${middleUpper} st`}`;
-  return total ? [compact, `total: ${total.short}`] : [compact];
+  return total ? [compact, `total: ${total}`] : [compact];
 }
 
 function chordUsesSelectedIntervals(chord, selectedIntervalKeys) {
@@ -1965,22 +2027,23 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
               visualKind,
             });
             return [
-              // 1) Solo la nota inicial — puede ser grave, media o aguda según el orden aleatorio.
-              makeGradualSlot([firstVoice], { [firstVoice]: statusOf(firstVoice) }, "single"),
-              // 2) Después de responder la segunda nota, se muestra el bicorde:
-              // la nota inicial se autocompleta como acierto y la segunda conserva su resultado real.
+              // 1) Solo la nota inicial — es una nota dada, no muestra acierto ni error.
+              makeGradualSlot([firstVoice], {}, "single"),
+              // 2) Después de responder la segunda nota, se muestra el bicorde completo,
+              // pero solo la nota nueva conserva su acierto/error. La nota fija no cuenta visualmente.
               makeGradualSlot(
                 secondAnswered ? [firstVoice, secondVoice] : [],
-                secondAnswered ? { [firstVoice]: "correct", [secondVoice]: statusOf(secondVoice) } : {},
+                secondAnswered ? { [secondVoice]: statusOf(secondVoice) } : {},
                 "partial"
               ),
-              // 3) Después de responder la tercera nota, se muestra el tricorde completo:
-              // las dos notas anteriores se autocompletan como aciertos.
+              // 3) Después de responder la tercera nota, se muestra el primer tricorde completo,
+              // pero solo la tercera nota conserva su acierto/error. Las dos anteriores ya fueron respondidas.
               makeGradualSlot(
                 thirdAnswered ? [firstVoice, secondVoice, thirdVoice] : [],
-                thirdAnswered ? { [firstVoice]: "correct", [secondVoice]: "correct", [thirdVoice]: statusOf(thirdVoice) } : {},
+                thirdAnswered ? { [thirdVoice]: statusOf(thirdVoice) } : {},
                 "full"
               ),
+              // 4) Desde el siguiente tricorde en adelante, cada acorde muestra sus 3 respuestas.
               ...chordSlots.slice(1),
             ];
           })()
@@ -2656,6 +2719,18 @@ function TunerPanel({ notes = [], visible = false }) {
     }, TUNER_COMPLETE_DELAY_MS);
   }, [advanceTarget]);
 
+  const adjustHoldSeconds = useCallback((direction) => {
+    const current = holdSecondsRef.current;
+    let index = TUNER_HOLD_OPTIONS.findIndex((seconds) => seconds === current);
+    if (index < 0) {
+      index = TUNER_HOLD_OPTIONS.reduce((bestIndex, seconds, candidateIndex) => (
+        Math.abs(seconds - current) < Math.abs(TUNER_HOLD_OPTIONS[bestIndex] - current) ? candidateIndex : bestIndex
+      ), 0);
+    }
+    const nextIndex = clamp(index + direction, 0, TUNER_HOLD_OPTIONS.length - 1);
+    setHoldSeconds(TUNER_HOLD_OPTIONS[nextIndex]);
+  }, []);
+
   const analyse = useCallback(() => {
     const analyser = analyserRef.current;
     const ctx = audioContextRef.current;
@@ -2760,8 +2835,8 @@ function TunerPanel({ notes = [], visible = false }) {
 
   return (
     <div className={`mx-auto mt-2 w-full max-w-none rounded-2xl border p-2.5 transition ${completedFlash ? "border-emerald-400 bg-emerald-50/90" : inTune ? "border-emerald-300 bg-emerald-50/70" : "border-zinc-200 bg-zinc-50"}`}>
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_auto_1fr]">
+        <div className="flex flex-wrap items-center justify-center gap-1.5 sm:justify-start">
           <button type="button" onClick={() => setMode("study")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${mode === "study" ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}>Estudio</button>
           <button type="button" onClick={() => setMode("free")} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${mode === "free" ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}>Libre</button>
           {mode === "study" ? <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">{targetIndex + 1}/{notes.length}</span> : null}
@@ -2787,27 +2862,58 @@ function TunerPanel({ notes = [], visible = false }) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
+        <div className="flex flex-wrap items-center justify-center gap-1.5 sm:justify-end">
           {mode === "study" ? (
-            <div className="flex flex-wrap justify-end gap-1">
-              {TUNER_HOLD_OPTIONS.map((seconds) => (
+            <>
+              <div className="flex items-center justify-center gap-1 sm:hidden">
                 <button
                   type="button"
-                  key={seconds}
-                  onClick={() => setHoldSeconds(seconds)}
-                  className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${holdSeconds === seconds ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}
+                  onClick={() => adjustHoldSeconds(-1)}
+                  className="h-8 w-8 rounded-full border border-zinc-300 bg-white text-sm font-bold text-zinc-700"
+                  aria-label="Disminuir segundos"
                 >
-                  {seconds}s
+                  −
                 </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setTargetManually(targetIndexRef.current + 1)}
-                className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:border-zinc-500"
-              >
-                Siguiente nota
-              </button>
-            </div>
+                <span className="min-w-[58px] rounded-full border border-zinc-300 bg-white px-2.5 py-1.5 text-center text-[11px] font-bold text-zinc-800">
+                  {holdSeconds}s
+                </span>
+                <button
+                  type="button"
+                  onClick={() => adjustHoldSeconds(1)}
+                  className="h-8 w-8 rounded-full border border-zinc-300 bg-white text-sm font-bold text-zinc-700"
+                  aria-label="Aumentar segundos"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTargetManually(targetIndexRef.current + 1)}
+                  className="rounded-full border border-zinc-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-zinc-700"
+                >
+                  Sig.
+                </button>
+              </div>
+
+              <div className="hidden flex-wrap justify-end gap-1 sm:flex">
+                {TUNER_HOLD_OPTIONS.map((seconds) => (
+                  <button
+                    type="button"
+                    key={seconds}
+                    onClick={() => setHoldSeconds(seconds)}
+                    className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${holdSeconds === seconds ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}
+                  >
+                    {seconds}s
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setTargetManually(targetIndexRef.current + 1)}
+                  className="rounded-full border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:border-zinc-500"
+                >
+                  Siguiente nota
+                </button>
+              </div>
+            </>
           ) : null}
           {isListening ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">Mic activo</span> : <button type="button" onClick={startListening} className="rounded-full border border-zinc-950 bg-zinc-950 px-3 py-1 text-[11px] font-semibold text-white">Activar micrófono</button>}
         </div>
