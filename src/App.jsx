@@ -1774,6 +1774,44 @@ function ledgerLinesForY(x, y) {
   return lines;
 }
 
+function clefNeedsManual15Annotation(clef) {
+  return clef?.key === "treble15ma";
+}
+
+function addClefToStave(stave, clef) {
+  if (!stave || !clef) return;
+  if (clefNeedsManual15Annotation(clef)) {
+    stave.addClef(clef.vex);
+    return;
+  }
+  if (clef.clefAnnotation) {
+    try {
+      stave.addClef(clef.vex, "default", clef.clefAnnotation);
+      return;
+    } catch {
+      // Algunos builds de VexFlow aceptan anotaciones solo para ciertos casos.
+    }
+  }
+  stave.addClef(clef.vex);
+}
+
+function appendManualClefAnnotation(svg, clef, x, y) {
+  if (!svg || !clefNeedsManual15Annotation(clef)) return;
+  const ns = "http://www.w3.org/2000/svg";
+  const text = document.createElementNS(ns, "text");
+  text.setAttribute("x", String(x));
+  text.setAttribute("y", String(y));
+  text.setAttribute("text-anchor", "middle");
+  text.setAttribute("dominant-baseline", "middle");
+  text.setAttribute("font-family", "Georgia, 'Times New Roman', serif");
+  text.setAttribute("font-size", "15");
+  text.setAttribute("font-weight", "700");
+  text.setAttribute("letter-spacing", "-0.5");
+  text.setAttribute("fill", "#111");
+  text.textContent = "15";
+  svg.appendChild(text);
+}
+
 function MobileClefOverlay({ clefKey }) {
   const clefRef = useRef(null);
 
@@ -1799,15 +1837,7 @@ function MobileClefOverlay({ clefKey }) {
         stave.setEndBarType(VF.Barline.type.NONE);
       }
 
-      if (clef.clefAnnotation) {
-        try {
-          stave.addClef(clef.vex, "default", clef.clefAnnotation);
-        } catch {
-          stave.addClef(clef.vex);
-        }
-      } else {
-        stave.addClef(clef.vex);
-      }
+      addClefToStave(stave, clef);
 
       stave.setContext(context).draw();
 
@@ -1815,7 +1845,9 @@ function MobileClefOverlay({ clefKey }) {
       if (svg) {
         svg.setAttribute("width", String(width));
         svg.setAttribute("height", String(height));
-        svg.setAttribute("style", "display:block; overflow:visible;");
+        svg.setAttribute("style", "display:block; overflow:visible; background:transparent;");
+        const topY = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : 62;
+        appendManualClefAnnotation(svg, clef, 36, topY - 16);
       }
     } catch (error) {
       console.warn("No se pudo dibujar la clave móvil:", error);
@@ -1826,7 +1858,7 @@ function MobileClefOverlay({ clefKey }) {
     <div
       ref={clefRef}
       aria-hidden="true"
-      className="pointer-events-none absolute left-1 top-2 z-20 block h-[150px] w-[92px] bg-white sm:hidden"
+      className="pointer-events-none absolute left-1 top-2 z-20 block h-[150px] w-[92px] bg-transparent sm:hidden"
     />
   );
 }
@@ -1944,7 +1976,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         const availableWidth = Math.max(300, scrollRef.current?.clientWidth ?? 650);
         const compact = availableWidth < 560;
         const noteCount = Math.max(1, entries.length);
-        const clefReserve = compact ? 76 : 92;
+        const clefReserve = compact ? 92 : 92;
         const finalReserve = compact ? 34 : 42;
         const noteStartPadding = compact ? 26 : 34;
         const noteSpacing = noteCount <= 2
@@ -1960,10 +1992,10 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
             : Math.min(availableWidth, Math.max(naturalWidth, Math.min(availableWidth, 520)));
         width = Math.max(compact ? 260 : 330, Math.round(width));
         const height = compact ? 190 : 204;
-        // En celular la clave quedaba demasiado pegada al borde izquierdo del SVG
-        // y algunos navegadores la recortaban. Desplazamos solo el pentagrama
-        // hacia la derecha, conservando el desplazamiento horizontal actual.
-        const staveX = compact ? 34 : 14;
+        // En móvil la clave queda fija fuera del SVG desplazable. El pentagrama móvil
+        // empieza desde el borde para que sus líneas se unan visualmente con la clave fija
+        // y para evitar la doble clave al desplazar horizontalmente.
+        const staveX = compact ? 0 : 14;
         const staveY = compact ? 52 : 58;
         const staveRightPadding = compact ? 12 : 28;
         const staveWidth = Math.max(180, width - staveX - staveRightPadding);
@@ -1974,14 +2006,8 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         if (VF.Barline?.type?.END && typeof stave.setEndBarType === "function") {
           stave.setEndBarType(VF.Barline.type.END);
         }
-        if (clef.clefAnnotation) {
-          try {
-            stave.addClef(clef.vex, "default", clef.clefAnnotation);
-          } catch {
-            stave.addClef(clef.vex);
-          }
-        } else {
-          stave.addClef(clef.vex);
+        if (!compact) {
+          addClefToStave(stave, clef);
         }
         if (typeof stave.getNoteStartX === "function" && typeof stave.setNoteStartX === "function") {
           stave.setNoteStartX(stave.getNoteStartX() + noteStartPadding);
@@ -2048,6 +2074,10 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
           svg.setAttribute("style", "display:block; max-width:none; overflow:visible;");
           svg.setAttribute("width", String(width));
           svg.setAttribute("height", String(height));
+          if (!compact) {
+            const topY = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : staveY;
+            appendManualClefAnnotation(svg, clef, staveX + 36, topY - 16);
+          }
 
           const drawFinalDoubleBar = () => {
             const finalX = staveX + staveWidth;
