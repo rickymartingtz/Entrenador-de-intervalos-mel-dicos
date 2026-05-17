@@ -1774,6 +1774,63 @@ function ledgerLinesForY(x, y) {
   return lines;
 }
 
+function MobileClefOverlay({ clefKey }) {
+  const clefRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const node = clefRef.current;
+    if (!node) return;
+    node.innerHTML = "";
+
+    try {
+      const clef = getClefConfig(clefKey ?? "treble");
+      const { Renderer, Stave } = VF;
+      const width = 92;
+      const height = 150;
+      const renderer = new Renderer(node, Renderer.Backends.SVG);
+      renderer.resize(width, height);
+      const context = renderer.getContext();
+      const stave = new Stave(0, 52, width - 2);
+
+      if (VF.Barline?.type?.NONE && typeof stave.setBegBarType === "function") {
+        stave.setBegBarType(VF.Barline.type.NONE);
+      }
+      if (VF.Barline?.type?.NONE && typeof stave.setEndBarType === "function") {
+        stave.setEndBarType(VF.Barline.type.NONE);
+      }
+
+      if (clef.clefAnnotation) {
+        try {
+          stave.addClef(clef.vex, "default", clef.clefAnnotation);
+        } catch {
+          stave.addClef(clef.vex);
+        }
+      } else {
+        stave.addClef(clef.vex);
+      }
+
+      stave.setContext(context).draw();
+
+      const svg = node.querySelector("svg");
+      if (svg) {
+        svg.setAttribute("width", String(width));
+        svg.setAttribute("height", String(height));
+        svg.setAttribute("style", "display:block; overflow:visible;");
+      }
+    } catch (error) {
+      console.warn("No se pudo dibujar la clave móvil:", error);
+    }
+  }, [clefKey]);
+
+  return (
+    <div
+      ref={clefRef}
+      aria-hidden="true"
+      className="pointer-events-none absolute left-1 top-2 z-20 block h-[150px] w-[92px] bg-white sm:hidden"
+    />
+  );
+}
+
 function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = null, chordEntryMode = DEFAULT_CHORD_ENTRY_MODE }) {
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
@@ -2237,10 +2294,11 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         className="staff-scroll w-full min-w-0 max-w-full cursor-grab touch-pan-x overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-xl bg-white px-1 pt-2 pb-2 active:cursor-grabbing sm:px-2"
         style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin", touchAction: "pan-x", scrollBehavior: "auto" }}
       >
-        <div className="flex min-w-full justify-center">
-          <div ref={containerRef} className="inline-block align-top" />
+        <div className="flex w-max min-w-full justify-start px-16 sm:w-full sm:justify-center sm:px-0">
+          <div ref={containerRef} className="inline-block flex-none align-top" />
         </div>
       </div>
+      <MobileClefOverlay clefKey={exercise?.clefKey ?? "treble"} />
       </div>
       {scrollMetrics.max > 4 ? (
         <div className="flex items-center gap-2 px-1 sm:hidden">
