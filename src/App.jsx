@@ -2917,7 +2917,7 @@ function TunerPanel({ notes = [], visible = false }) {
               </div>
             </>
           ) : null}
-          {isListening ? <span className="aural-active rounded-full border px-2.5 py-1 text-[11px] font-semibold">Mic activo</span> : <button type="button" onClick={startListening} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-50">Activar micrófono</button>}
+          {isListening ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">Mic activo</span> : <button type="button" onClick={startListening} className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-50">Activar micrófono</button>}
         </div>
       </div>
 
