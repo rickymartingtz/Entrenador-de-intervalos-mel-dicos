@@ -109,6 +109,7 @@ const DEFAULT_CHORD_TEMPO = 50;
 const MIN_VOLUME = 0;
 const MAX_VOLUME = 100;
 const DEFAULT_VOLUME = 50;
+const DEFAULT_VOICE_VOLUME = 100;
 const INTERNAL_VOLUME_BOOST = 9.0;
 const SOUNDFONT_GAIN_BOOST = 16.0;
 const CHORD_SOUNDFONT_GAIN_BOOST = 8.0;
@@ -1727,6 +1728,11 @@ function initialSettings() {
     chordMiddleInstrument: DEFAULT_CHORD_MIDDLE_INSTRUMENT,
     chordUpperInstrument: DEFAULT_CHORD_UPPER_INSTRUMENT,
     chordInstrumentPreset: DEFAULT_CHORD_INSTRUMENT_PRESET,
+    harmonicLowerVolume: DEFAULT_VOICE_VOLUME,
+    harmonicUpperVolume: DEFAULT_VOICE_VOLUME,
+    chordBassVolume: DEFAULT_VOICE_VOLUME,
+    chordMiddleVolume: DEFAULT_VOICE_VOLUME,
+    chordUpperVolume: DEFAULT_VOICE_VOLUME,
   };
   try {
     const stored = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) || "null");
@@ -1754,6 +1760,11 @@ function initialSettings() {
       chordMiddleInstrument: INSTRUMENTS.some((item) => item.value === stored.chordMiddleInstrument) ? stored.chordMiddleInstrument : DEFAULT_CHORD_MIDDLE_INSTRUMENT,
       chordUpperInstrument: INSTRUMENTS.some((item) => item.value === stored.chordUpperInstrument) ? stored.chordUpperInstrument : DEFAULT_CHORD_UPPER_INSTRUMENT,
       chordInstrumentPreset: CHORD_INSTRUMENT_PRESETS.some((item) => item.key === stored.chordInstrumentPreset) ? stored.chordInstrumentPreset : DEFAULT_CHORD_INSTRUMENT_PRESET,
+      harmonicLowerVolume: clamp(Number(stored.harmonicLowerVolume ?? defaults.harmonicLowerVolume), MIN_VOLUME, MAX_VOLUME),
+      harmonicUpperVolume: clamp(Number(stored.harmonicUpperVolume ?? defaults.harmonicUpperVolume), MIN_VOLUME, MAX_VOLUME),
+      chordBassVolume: clamp(Number(stored.chordBassVolume ?? defaults.chordBassVolume), MIN_VOLUME, MAX_VOLUME),
+      chordMiddleVolume: clamp(Number(stored.chordMiddleVolume ?? defaults.chordMiddleVolume), MIN_VOLUME, MAX_VOLUME),
+      chordUpperVolume: clamp(Number(stored.chordUpperVolume ?? defaults.chordUpperVolume), MIN_VOLUME, MAX_VOLUME),
     };
   } catch {
     return defaults;
@@ -1846,6 +1857,26 @@ function ActionButton({ active, onClick, children, disabled = false }) {
     >
       {children}
     </button>
+  );
+}
+
+function VoiceVolumeControl({ label, value, onChange }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">{label}</span>
+        <span className="text-[11px] font-semibold text-zinc-700">{value}%</span>
+      </div>
+      <input
+        type="range"
+        min={MIN_VOLUME}
+        max={MAX_VOLUME}
+        step={1}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="w-full accent-sky-600"
+      />
+    </div>
   );
 }
 
@@ -2382,8 +2413,13 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
                 });
               }
               const groupNotes = isChordExercise
-                ? [entry.lower, entry.middle, entry.upper].filter(Boolean).map((note, i) => ({ note, voice: ["lower", "middle", "upper"][i] }))
-                : group.filter((item) => item.visible !== false).map((item) => item.note).filter(Boolean);
+                ? visibleGroup
+                    .filter((item) => CHORD_VOICES.includes(item.role))
+                    .map((item) => ({ note: item.note, voice: item.role, sourceMode: "chords" }))
+                : group
+                    .filter((item) => item.visible !== false)
+                    .map((item) => isHarmonic ? { note: item.note, voice: item.role, sourceMode: "harmonic" } : item.note)
+                    .filter(Boolean);
               if (typeof onNotePress === "function" && groupNotes.length) {
                 const minY = groupYs.length ? Math.min(...groupYs) : 58;
                 const maxY = groupYs.length ? Math.max(...groupYs) : 112;
@@ -3118,6 +3154,11 @@ export default function IntervalTrainerPage() {
   const [chordMiddleInstrument, setChordMiddleInstrument] = useState(saved?.chordMiddleInstrument ?? DEFAULT_CHORD_MIDDLE_INSTRUMENT);
   const [chordUpperInstrument, setChordUpperInstrument] = useState(saved?.chordUpperInstrument ?? DEFAULT_CHORD_UPPER_INSTRUMENT);
   const [chordInstrumentPreset, setChordInstrumentPreset] = useState(saved?.chordInstrumentPreset ?? DEFAULT_CHORD_INSTRUMENT_PRESET);
+  const [harmonicLowerVolume, setHarmonicLowerVolume] = useState(saved?.harmonicLowerVolume ?? DEFAULT_VOICE_VOLUME);
+  const [harmonicUpperVolume, setHarmonicUpperVolume] = useState(saved?.harmonicUpperVolume ?? DEFAULT_VOICE_VOLUME);
+  const [chordBassVolume, setChordBassVolume] = useState(saved?.chordBassVolume ?? DEFAULT_VOICE_VOLUME);
+  const [chordMiddleVolume, setChordMiddleVolume] = useState(saved?.chordMiddleVolume ?? DEFAULT_VOICE_VOLUME);
+  const [chordUpperVolume, setChordUpperVolume] = useState(saved?.chordUpperVolume ?? DEFAULT_VOICE_VOLUME);
   const [exercise, setExercise] = useState(() => {
     const mode = saved?.trainerMode ?? DEFAULT_TRAINER_MODE;
     if (mode === "chords") {
@@ -3188,6 +3229,19 @@ export default function IntervalTrainerPage() {
     return [];
   }, [isChordMode, isHarmonicMode, noteCount, useTwelveToneSeries]);
 
+  const getVoiceVolumeScalar = useCallback((voice, sourceMode = null) => {
+    let value = DEFAULT_VOICE_VOLUME;
+    if (sourceMode === "chords") {
+      if (voice === "lower") value = chordBassVolume;
+      else if (voice === "middle") value = chordMiddleVolume;
+      else if (voice === "upper") value = chordUpperVolume;
+    } else if (sourceMode === "harmonic") {
+      if (voice === "lower") value = harmonicLowerVolume;
+      else if (voice === "upper") value = harmonicUpperVolume;
+    }
+    return clamp(Number(value), MIN_VOLUME, MAX_VOLUME) / 100;
+  }, [chordBassVolume, chordMiddleVolume, chordUpperVolume, harmonicLowerVolume, harmonicUpperVolume]);
+
   useEffect(() => {
     const maxIndex = Math.max(0, playbackEvents.length - 1);
     setPlaybackStartIndex((current) => clamp(current, 0, maxIndex));
@@ -3229,9 +3283,14 @@ export default function IntervalTrainerPage() {
         chordMiddleInstrument,
         chordUpperInstrument,
         chordInstrumentPreset,
+        harmonicLowerVolume,
+        harmonicUpperVolume,
+        chordBassVolume,
+        chordMiddleVolume,
+        chordUpperVolume,
       }));
     } catch {}
-  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordInstrumentPreset, chordMiddleInstrument, chordRepeat, chordUpperInstrument, directionMode, harmonicResponseMode, instrument, noteCount, selectedChordLinkModes, selectedClefKeys, selectedIntervalKeys, tempo, trainerMode, useTwelveToneSeries, volume]);
+  }, [chordBassInstrument, chordBassVolume, chordEntryMode, chordGapMode, chordInstrumentPreset, chordMiddleInstrument, chordMiddleVolume, chordRepeat, chordUpperInstrument, chordUpperVolume, directionMode, harmonicLowerVolume, harmonicResponseMode, harmonicUpperVolume, instrument, noteCount, selectedChordLinkModes, selectedClefKeys, selectedIntervalKeys, tempo, trainerMode, useTwelveToneSeries, volume]);
 
   useEffect(() => {
     try {
@@ -3650,9 +3709,9 @@ export default function IntervalTrainerPage() {
       if (isChordExercise) {
         (exerciseToPlay?.chords ?? []).forEach((chord, chordIndex) => {
           const byVoice = {
-            lower: { note: chord.lower, instrument: instrumentConfigs.lower, voice: "lower" },
-            middle: { note: chord.middle, instrument: instrumentConfigs.middle, voice: "middle" },
-            upper: { note: chord.upper, instrument: instrumentConfigs.upper, voice: "upper" },
+            lower: { note: chord.lower, instrument: instrumentConfigs.lower, voice: "lower", sourceMode: "chords" },
+            middle: { note: chord.middle, instrument: instrumentConfigs.middle, voice: "middle", sourceMode: "chords" },
+            upper: { note: chord.upper, instrument: instrumentConfigs.upper, voice: "upper", sourceMode: "chords" },
           };
           const order = getChordEntryOrder(chord);
           const fullChord = CHORD_VOICES.map((voice) => byVoice[voice]).filter((item) => item.note);
@@ -3673,8 +3732,8 @@ export default function IntervalTrainerPage() {
         });
       } else if (isHarmonic) {
         (exerciseToPlay?.pairs ?? []).forEach((pair) => events.push([
-          { note: pair.lower, instrument: selectedInstrument, voice: "lower" },
-          { note: pair.upper, instrument: selectedInstrument, voice: "upper" },
+          { note: pair.lower, instrument: selectedInstrument, voice: "lower", sourceMode: "harmonic" },
+          { note: pair.upper, instrument: selectedInstrument, voice: "upper", sourceMode: "harmonic" },
         ]));
       } else {
         (exerciseToPlay?.sequence ?? []).forEach((note) => events.push([{ note, instrument: selectedInstrument, voice: "single" }]));
@@ -3695,8 +3754,11 @@ export default function IntervalTrainerPage() {
 
       scheduledEvents.forEach((eventNotes, index) => {
         const start = baseTime + index * step;
-        eventNotes.forEach(({ note, instrument: instrumentConfig }) => {
+        eventNotes.forEach(({ note, instrument: instrumentConfig, voice, sourceMode }) => {
           const config = instrumentConfig ?? selectedInstrument;
+          const voiceScalar = getVoiceVolumeScalar(voice, sourceMode);
+          const noteGain = gain * voiceScalar;
+          const noteVolume = clamp(volume * voiceScalar, MIN_VOLUME, MAX_VOLUME);
           const sfInstrument = sfMap.get(config.value);
           const duration = isChordExercise
             ? chordAudibleDuration
@@ -3709,14 +3771,14 @@ export default function IntervalTrainerPage() {
                 mainDuration: chordSoundDuration,
                 releaseDuration: chordReleaseDuration,
                 silentTailDuration: chordSilenceDuration,
-                playerGain: gain,
+                playerGain: noteGain,
                 envelopeGain: 1,
                 isChordEvent: true,
               });
             } else {
               const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, {
                 duration,
-                gain,
+                gain: noteGain,
                 attack: 0.01,
                 decay: 0.06,
                 sustain: 1,
@@ -3726,7 +3788,7 @@ export default function IntervalTrainerPage() {
               activePlayersRef.current.push(player);
             }
           } else {
-            createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, volume);
+            createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, noteVolume);
           }
         });
       });
@@ -3746,7 +3808,7 @@ export default function IntervalTrainerPage() {
       console.error("Error al reproducir:", error);
       if (sessionId === playbackSessionRef.current) setIsPlaying(false);
     }
-  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordMiddleInstrument, chordRepeat, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, playSoundfontWithManualEnvelope, selectedInstrument, setAudioOutputVolume, stopAllAudio, tempo, volume]);
+  }, [chordBassInstrument, chordEntryMode, chordGapMode, chordMiddleInstrument, chordRepeat, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, getVoiceVolumeScalar, playSoundfontWithManualEnvelope, selectedInstrument, setAudioOutputVolume, stopAllAudio, tempo, volume]);
 
   const playSingleNote = useCallback(async (noteOrNotes) => {
     const rawItems = Array.isArray(noteOrNotes) ? noteOrNotes.filter(Boolean) : [noteOrNotes].filter(Boolean);
@@ -3761,16 +3823,18 @@ export default function IntervalTrainerPage() {
     setIsPlaying(false);
     try {
       const ctx = await ensureAudioContext();
-      const isChordPreview = items.length > 1 && items.some((item) => ["lower", "middle", "upper"].includes(item.voice));
+      const isChordPreview = items.some((item) => item.sourceMode === "chords");
       setAudioOutputVolume(ctx, isChordPreview ? volume : 100);
       const gain = Math.max(
         0,
         (clamp(volume, MIN_VOLUME, MAX_VOLUME) / 100) * (isChordPreview ? CHORD_SOUNDFONT_GAIN_BOOST : SOUNDFONT_GAIN_BOOST)
       );
       const configs = items.map((item) => {
-        if (item.voice === "lower") return getInstrumentConfig(chordBassInstrument);
-        if (item.voice === "middle") return getInstrumentConfig(chordMiddleInstrument);
-        if (item.voice === "upper") return getInstrumentConfig(chordUpperInstrument);
+        if (item.sourceMode === "chords") {
+          if (item.voice === "lower") return getInstrumentConfig(chordBassInstrument);
+          if (item.voice === "middle") return getInstrumentConfig(chordMiddleInstrument);
+          if (item.voice === "upper") return getInstrumentConfig(chordUpperInstrument);
+        }
         return selectedInstrument;
       });
       const sfMap = new Map();
@@ -3796,6 +3860,9 @@ export default function IntervalTrainerPage() {
       items.forEach((item, index) => {
         const note = item.note;
         const config = configs[index] ?? selectedInstrument;
+        const voiceScalar = getVoiceVolumeScalar(item.voice, item.sourceMode);
+        const noteGain = gain * voiceScalar;
+        const noteVolume = clamp(volume * voiceScalar, MIN_VOLUME, MAX_VOLUME);
         const duration = isChordPreview ? chordPreviewAudibleDuration : (config?.sustain ? 1.15 : 0.95);
         const sfInstrument = sfMap.get(config.value);
         if (sfInstrument) {
@@ -3805,14 +3872,14 @@ export default function IntervalTrainerPage() {
               mainDuration: chordPreviewSoundDuration,
               releaseDuration: chordPreviewReleaseDuration,
               silentTailDuration: chordPreviewSilenceDuration,
-              playerGain: gain,
+              playerGain: noteGain,
               envelopeGain: 1,
               isChordEvent: true,
             });
           } else {
             const player = sfInstrument.play(noteNameForSoundFont(note.midi), start, {
               duration,
-              gain,
+              gain: noteGain,
               attack: 0.01,
               decay: 0.06,
               sustain: 1,
@@ -3822,13 +3889,13 @@ export default function IntervalTrainerPage() {
             activePlayersRef.current.push(player);
           }
         } else {
-          createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, volume);
+          createFallbackVoice(ctx, midiToFreq(note.midi), config?.fallback ?? "piano", start, duration, noteVolume);
         }
       });
     } catch (error) {
       console.error("Error al reproducir la nota:", error);
     }
-  }, [chordBassInstrument, chordGapMode, chordMiddleInstrument, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, playSoundfontWithManualEnvelope, selectedInstrument, setAudioOutputVolume, stopAllAudio, tempo, volume]);
+  }, [chordBassInstrument, chordGapMode, chordMiddleInstrument, chordUpperInstrument, createFallbackVoice, ensureAudioContext, getSoundfontInstrument, getVoiceVolumeScalar, playSoundfontWithManualEnvelope, selectedInstrument, setAudioOutputVolume, stopAllAudio, tempo, volume]);
 
   const startExercise = useCallback(() => {
     if (!canGenerate) return;
@@ -4024,16 +4091,22 @@ export default function IntervalTrainerPage() {
 
   const resetEverything = useCallback(() => {
     stopPlayback();
-    const freshExercise = buildMelody(DEFAULT_NOTE_COUNT, DEFAULT_INTERVAL_KEYS, DEFAULT_CLEF_KEYS, DEFAULT_DIRECTION_MODE);
+    const mode = trainerMode;
+    const freshIntervals = defaultIntervalKeysForMode(mode);
+    const freshExercise = mode === "chords"
+      ? buildChordSequence(DEFAULT_NOTE_COUNT, freshIntervals, DEFAULT_CLEF_KEYS, DEFAULT_CHORD_LINK_MODES)
+      : mode === "harmonic"
+        ? buildHarmonicSequence(DEFAULT_NOTE_COUNT, freshIntervals, DEFAULT_CLEF_KEYS)
+        : buildMelody(DEFAULT_NOTE_COUNT, freshIntervals, DEFAULT_CLEF_KEYS, DEFAULT_DIRECTION_MODE);
     setNoteCount(DEFAULT_NOTE_COUNT);
     setTempo(DEFAULT_TEMPO);
     setVolume(DEFAULT_VOLUME);
     setInstrument(DEFAULT_INSTRUMENT);
-    setSelectedIntervalKeys(DEFAULT_INTERVAL_KEYS);
+    setSelectedIntervalKeys(freshIntervals);
     setSelectedClefKeys(DEFAULT_CLEF_KEYS);
     setDirectionMode(DEFAULT_DIRECTION_MODE);
     setUseTwelveToneSeries(false);
-    setTrainerMode(DEFAULT_TRAINER_MODE);
+    setTrainerMode(mode);
     setHarmonicResponseMode(DEFAULT_HARMONIC_RESPONSE_MODE);
     setChordEntryMode(DEFAULT_CHORD_ENTRY_MODE);
     setChordRepeat(DEFAULT_CHORD_REPEAT);
@@ -4043,16 +4116,18 @@ export default function IntervalTrainerPage() {
     setChordMiddleInstrument(DEFAULT_CHORD_MIDDLE_INSTRUMENT);
     setChordUpperInstrument(DEFAULT_CHORD_UPPER_INSTRUMENT);
     setChordInstrumentPreset(DEFAULT_CHORD_INSTRUMENT_PRESET);
+    setHarmonicLowerVolume(DEFAULT_VOICE_VOLUME);
+    setHarmonicUpperVolume(DEFAULT_VOICE_VOLUME);
+    setChordBassVolume(DEFAULT_VOICE_VOLUME);
+    setChordMiddleVolume(DEFAULT_VOICE_VOLUME);
+    setChordUpperVolume(DEFAULT_VOICE_VOLUME);
     setExercise(freshExercise);
     setAttemptNotes(makeInitialAttempts(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
     setNextIndex(1);
     setHarmonicStep(firstHarmonicStep(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
     setChordStep(firstChordStep(freshExercise));
     setRevealFull(false);
-    try {
-      window.localStorage.removeItem(SETTINGS_KEY);
-    } catch {}
-  }, [stopPlayback]);
+  }, [stopPlayback, trainerMode]);
 
   useEffect(() => {
     if (trainerMode === "harmonic") {
@@ -4241,14 +4316,17 @@ export default function IntervalTrainerPage() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Bajo</span><Badge>{getInstrumentConfig(chordBassInstrument)?.label}</Badge></div>
                       <select value={chordBassInstrument} onChange={(event) => { setChordInstrumentPreset("custom"); setChordBassInstrument(event.target.value); }} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                      <VoiceVolumeControl label="Vol. bajo" value={chordBassVolume} onChange={setChordBassVolume} />
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Voz media</span><Badge>{getInstrumentConfig(chordMiddleInstrument)?.label}</Badge></div>
                       <select value={chordMiddleInstrument} onChange={(event) => { setChordInstrumentPreset("custom"); setChordMiddleInstrument(event.target.value); }} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                      <VoiceVolumeControl label="Vol. medio" value={chordMiddleVolume} onChange={setChordMiddleVolume} />
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-4"><span className="text-sm font-medium text-zinc-700">Voz alta</span><Badge>{getInstrumentConfig(chordUpperInstrument)?.label}</Badge></div>
                       <select value={chordUpperInstrument} onChange={(event) => { setChordInstrumentPreset("custom"); setChordUpperInstrument(event.target.value); }} className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">{INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                      <VoiceVolumeControl label="Vol. alto" value={chordUpperVolume} onChange={setChordUpperVolume} />
                     </div>
                   </div>
                 </div>
@@ -4259,6 +4337,12 @@ export default function IntervalTrainerPage() {
                     <select value={instrument} onChange={(event) => setInstrument(event.target.value)} className="w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-700 outline-none focus:border-zinc-500">
                       {INSTRUMENTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                     </select>
+                    {isHarmonicMode ? (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <VoiceVolumeControl label="Vol. bajo" value={harmonicLowerVolume} onChange={setHarmonicLowerVolume} />
+                        <VoiceVolumeControl label="Vol. alto" value={harmonicUpperVolume} onChange={setHarmonicUpperVolume} />
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               )}
