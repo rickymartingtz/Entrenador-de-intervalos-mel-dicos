@@ -1823,12 +1823,16 @@ function MobileClefOverlay({ clefKey }) {
     try {
       const clef = getClefConfig(clefKey ?? "treble");
       const { Renderer, Stave } = VF;
-      const width = 92;
-      const height = 150;
+      // Móvil: esta capa fija funciona como máscara blanca. Oculta notas y líneas
+      // adicionales cuando el pentagrama se desliza por debajo, pero redibuja las
+      // cinco líneas para que no se perciba un hueco entre la clave fija y el pentagrama.
+      const width = 104;
+      const height = 206;
+      const staveY = 60;
       const renderer = new Renderer(node, Renderer.Backends.SVG);
       renderer.resize(width, height);
       const context = renderer.getContext();
-      const stave = new Stave(0, 52, width - 2);
+      const stave = new Stave(0, staveY, width);
 
       if (VF.Barline?.type?.NONE && typeof stave.setBegBarType === "function") {
         stave.setBegBarType(VF.Barline.type.NONE);
@@ -1843,10 +1847,39 @@ function MobileClefOverlay({ clefKey }) {
 
       const svg = node.querySelector("svg");
       if (svg) {
+        const ns = "http://www.w3.org/2000/svg";
         svg.setAttribute("width", String(width));
         svg.setAttribute("height", String(height));
         svg.setAttribute("style", "display:block; overflow:visible; background:transparent;");
-        const topY = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : 62;
+
+        const topY = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : staveY;
+        const bottomY = typeof stave.getYForLine === "function" ? stave.getYForLine(4) : topY + 40;
+
+        // Oculta cualquier barra vertical que VexFlow haya dibujado al final de la
+        // clave fija. Luego se redibujan solo las líneas horizontales para que la
+        // unión con el pentagrama móvil sea visualmente continua.
+        const eraseBar = document.createElementNS(ns, "rect");
+        eraseBar.setAttribute("x", String(width - 12));
+        eraseBar.setAttribute("y", String(topY - 16));
+        eraseBar.setAttribute("width", "18");
+        eraseBar.setAttribute("height", String(bottomY - topY + 32));
+        eraseBar.setAttribute("fill", "white");
+        eraseBar.setAttribute("stroke", "none");
+        svg.appendChild(eraseBar);
+
+        for (let line = 0; line <= 4; line += 1) {
+          const y = typeof stave.getYForLine === "function" ? stave.getYForLine(line) : topY + line * 10;
+          const staffLine = document.createElementNS(ns, "line");
+          staffLine.setAttribute("x1", String(width - 12));
+          staffLine.setAttribute("x2", String(width));
+          staffLine.setAttribute("y1", String(y));
+          staffLine.setAttribute("y2", String(y));
+          staffLine.setAttribute("stroke", "#111");
+          staffLine.setAttribute("stroke-width", "1");
+          staffLine.setAttribute("stroke-linecap", "butt");
+          svg.appendChild(staffLine);
+        }
+
         appendManualClefAnnotation(svg, clef, 36, topY - 16);
       }
     } catch (error) {
@@ -1858,7 +1891,7 @@ function MobileClefOverlay({ clefKey }) {
     <div
       ref={clefRef}
       aria-hidden="true"
-      className="pointer-events-none absolute left-1 top-2 z-20 block h-[150px] w-[92px] bg-transparent sm:hidden"
+      className="pointer-events-none absolute left-0 top-0 bottom-0 z-20 block w-[104px] overflow-hidden bg-white sm:hidden"
     />
   );
 }
@@ -1976,28 +2009,38 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         const availableWidth = Math.max(300, scrollRef.current?.clientWidth ?? 650);
         const compact = availableWidth < 560;
         const noteCount = Math.max(1, entries.length);
-        const clefReserve = compact ? 92 : 92;
-        const finalReserve = compact ? 34 : 42;
-        const noteStartPadding = compact ? 26 : 34;
-        const noteSpacing = noteCount <= 2
-          ? (compact ? 68 : 92)
-          : noteCount <= 4
-            ? (compact ? 58 : 80)
-            : clamp(Math.floor((availableWidth - clefReserve - finalReserve) / Math.max(1, noteCount)), compact ? 34 : 42, compact ? 54 : 70);
+        // En móvil aprovechamos el scroll horizontal: es preferible hacer el
+        // pentagrama más largo antes que comprimir las notas. Esto evita que
+        // se empalmen y deja una zona segura antes de la doble barra final.
+        const clefReserve = compact ? 122 : 92;
+        const finalReserve = compact ? 96 : 42;
+        const noteStartPadding = compact ? 58 : 34;
+        const compactBaseSpacing = isChordExercise ? 72 : isHarmonic ? 66 : 62;
+        const noteSpacing = compact
+          ? noteCount <= 2
+            ? 92
+            : noteCount <= 4
+              ? 82
+              : compactBaseSpacing
+          : noteCount <= 2
+            ? 92
+            : noteCount <= 4
+              ? 80
+              : clamp(Math.floor((availableWidth - clefReserve - finalReserve) / Math.max(1, noteCount)), 42, 70);
         const naturalWidth = clefReserve + finalReserve + Math.max(1, noteCount) * noteSpacing;
         let width = noteCount <= 2
-          ? Math.min(availableWidth, Math.max(compact ? 260 : 330, naturalWidth))
+          ? Math.min(availableWidth, Math.max(compact ? 300 : 330, naturalWidth))
           : compact
             ? Math.max(Math.min(availableWidth, 360), naturalWidth)
             : Math.min(availableWidth, Math.max(naturalWidth, Math.min(availableWidth, 520)));
-        width = Math.max(compact ? 260 : 330, Math.round(width));
+        width = Math.max(compact ? 300 : 330, Math.round(width));
         const height = compact ? 190 : 204;
         // En móvil la clave queda fija fuera del SVG desplazable. El pentagrama móvil
         // empieza desde el borde para que sus líneas se unan visualmente con la clave fija
         // y para evitar la doble clave al desplazar horizontalmente.
         const staveX = compact ? 0 : 14;
         const staveY = compact ? 52 : 58;
-        const staveRightPadding = compact ? 12 : 28;
+        const staveRightPadding = compact ? 28 : 28;
         const staveWidth = Math.max(180, width - staveX - staveRightPadding);
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
@@ -2063,7 +2106,9 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         if (typeof voice.setMode === "function" && Voice.Mode) voice.setMode(Voice.Mode.SOFT);
         if (typeof voice.setStrict === "function") voice.setStrict(false);
         voice.addTickables(vexNotes);
-        const formatWidth = Math.max(150, width - clefReserve - finalReserve - noteStartPadding);
+        const formatWidth = compact
+          ? Math.max(180, Math.max(1, noteCount) * noteSpacing)
+          : Math.max(150, width - clefReserve - finalReserve - noteStartPadding);
         new Formatter().joinVoices([voice]).format([voice], formatWidth);
 
         voice.draw(context, stave);
@@ -2324,7 +2369,7 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         className="staff-scroll w-full min-w-0 max-w-full cursor-grab touch-pan-x overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-xl bg-white px-1 pt-2 pb-2 active:cursor-grabbing sm:px-2"
         style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin", touchAction: "pan-x", scrollBehavior: "auto" }}
       >
-        <div className="flex w-max min-w-full justify-start px-16 sm:w-full sm:justify-center sm:px-0">
+        <div className="flex w-max min-w-full justify-start px-20 sm:w-full sm:justify-center sm:px-0">
           <div ref={containerRef} className="inline-block flex-none align-top" />
         </div>
       </div>
