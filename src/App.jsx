@@ -1903,10 +1903,17 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
             : Math.min(availableWidth, Math.max(naturalWidth, Math.min(availableWidth, 520)));
         width = Math.max(compact ? 260 : 330, Math.round(width));
         const height = compact ? 190 : 204;
+        // En celular la clave quedaba demasiado pegada al borde izquierdo del SVG
+        // y algunos navegadores la recortaban. Desplazamos solo el pentagrama
+        // hacia la derecha, conservando el desplazamiento horizontal actual.
+        const staveX = compact ? 34 : 14;
+        const staveY = compact ? 52 : 58;
+        const staveRightPadding = compact ? 12 : 28;
+        const staveWidth = Math.max(180, width - staveX - staveRightPadding);
         const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
         renderer.resize(width, height);
         const context = renderer.getContext();
-        const stave = new Stave(compact ? 8 : 14, compact ? 52 : 58, width - (compact ? 16 : 28));
+        const stave = new Stave(staveX, staveY, staveWidth);
         if (VF.Barline?.type?.END && typeof stave.setEndBarType === "function") {
           stave.setEndBarType(VF.Barline.type.END);
         }
@@ -1981,12 +1988,12 @@ function Staff({ exercise, attemptNotes = [], revealFull = false, onNotePress = 
         const svg = containerRef.current.querySelector("svg");
         const ns = "http://www.w3.org/2000/svg";
         if (svg) {
-          svg.setAttribute("style", "display:block; max-width:none;");
+          svg.setAttribute("style", "display:block; max-width:none; overflow:visible;");
           svg.setAttribute("width", String(width));
           svg.setAttribute("height", String(height));
 
           const drawFinalDoubleBar = () => {
-            const finalX = (compact ? 8 : 14) + (width - (compact ? 16 : 28));
+            const finalX = staveX + staveWidth;
             const topY = typeof stave.getYForLine === "function" ? stave.getYForLine(0) : (compact ? 52 : 58);
             const bottomY = typeof stave.getYForLine === "function" ? stave.getYForLine(4) : topY + 40;
             const cover = document.createElementNS(ns, "rect");
