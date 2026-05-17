@@ -2998,7 +2998,7 @@ function AppThemeStyles() {
       .app-theme-light {
         --aural-active-bg: #edf8ef;
         --aural-active-border: #9fceb0;
-        --aural-active-text: #2f6b46;
+        --aural-active-text: #18181b;
         --aural-active-hover: #e4f4e8;
         --aural-ring: rgba(47, 107, 70, 0.12);
         --aural-range: #0284c7;
@@ -4307,7 +4307,7 @@ export default function IntervalTrainerPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={clearTimeMarks} className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100">Borrar marcas</button>
-                <button type="button" onClick={() => setShowProgressPanel(false)} className="aural-primary rounded-xl border px-3 py-2 text-xs font-semibold">Cerrar</button>
+                <button type="button" onClick={() => setShowProgressPanel(false)} className="aural-mode-active rounded-xl border px-3 py-2 text-xs font-semibold">Cerrar</button>
               </div>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-6">
