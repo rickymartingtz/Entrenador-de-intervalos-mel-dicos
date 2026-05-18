@@ -2841,24 +2841,24 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
     ctx.stroke();
 
     // El historial baja verticalmente: eje X = cents, eje Y = tiempo.
-    // 80 muestras a 40 ms ≈ 3.2 s de historial visible: el trazo avanza
-    // más rápido y evita que la línea se amontone visualmente.
+    // El trazo arranca arriba incluso cuando el buffer todavía no está lleno,
+    // y después avanza hacia abajo conforme entran nuevas lecturas.
     if (active && centsHistoryRef?.current) {
       const buf = centsHistoryRef.current;
       const len = buf.length;
       const idx = centsHistoryIdxRef.current;
-      let drawing = false;
-      let previousInTune = false;
+      const values = [];
       for (let i = 0; i < len; i += 1) {
         const j = (idx + i) % len;
         const value = buf[j];
-        if (!Number.isFinite(value)) {
-          if (drawing) ctx.stroke();
-          drawing = false;
-          continue;
-        }
+        if (Number.isFinite(value)) values.push(value);
+      }
+
+      let drawing = false;
+      let previousInTune = false;
+      values.forEach((value, index) => {
         const x = xForCents(value);
-        const y = (i / Math.max(1, len - 1)) * h;
+        const y = (index / Math.max(1, len - 1)) * h;
         const isInTune = Math.abs(value) <= IN_TUNE_THRESHOLD;
         if (!drawing) {
           ctx.beginPath();
@@ -2877,7 +2877,7 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
           ctx.lineTo(x, y);
         }
         previousInTune = isInTune;
-      }
+      });
       if (drawing) ctx.stroke();
     }
   }, [active, cents, centsHistoryIdxRef, centsHistoryRef, completed, micEnabled]);
