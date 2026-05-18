@@ -1818,10 +1818,10 @@ function buildChordSequence(chordCount, selectedIntervalKeys, selectedClefKeys, 
   };
 }
 
-function makeInitialAttempts(exercise, harmonicResponseMode = DEFAULT_HARMONIC_RESPONSE_MODE) {
+function makeInitialAttempts(exercise, harmonicResponseMode = DEFAULT_HARMONIC_RESPONSE_MODE, chordEntryMode = DEFAULT_CHORD_ENTRY_MODE) {
   if (exercise?.type === "chords") {
     return (exercise.chords ?? []).map((chord, index) => {
-      const firstVoice = getChordEntryOrder(chord)[0] ?? "lower";
+      const firstVoice = chordEntryMode === "direct" ? "lower" : (getChordEntryOrder(chord)[0] ?? "lower");
       return {
         lower: chord.lower,
         middle: chord.middle,
@@ -1865,29 +1865,32 @@ function nextHarmonicStepAfter(step, exercise, harmonicResponseMode) {
   return nextPair < exercise.pairs.length ? { pairIndex: nextPair, voice: "lower" } : null;
 }
 
-function getChordAnswerOrder(chord, chordIndex = 0) {
-  // El primer tricorde conserva el orden aleatorio de entrada gradual
+function getChordAnswerOrder(chord, chordIndex = 0, chordEntryMode = DEFAULT_CHORD_ENTRY_MODE) {
+  // En entrada directa no debe haber ambigüedad visual: se da siempre el bajo
+  // y las respuestas continúan de abajo hacia arriba.
+  if (chordEntryMode === "direct") return CHORD_VOICES;
+  // En entrada gradual, el primer tricorde conserva el orden aleatorio contiguo
   // (puede iniciar por voz baja, media o alta). Desde el segundo tricorde
   // en adelante, las respuestas se piden siempre del bajo hacia arriba.
   return chordIndex === 0 ? getChordEntryOrder(chord) : CHORD_VOICES;
 }
 
-function firstChordStep(exercise) {
+function firstChordStep(exercise, chordEntryMode = DEFAULT_CHORD_ENTRY_MODE) {
   if (!exercise?.chords?.length) return null;
-  const firstOrder = getChordAnswerOrder(exercise.chords[0], 0);
+  const firstOrder = getChordAnswerOrder(exercise.chords[0], 0, chordEntryMode);
   return { chordIndex: 0, voice: firstOrder[1] ?? "middle" };
 }
 
-function nextChordStepAfter(step, exercise) {
+function nextChordStepAfter(step, exercise, chordEntryMode = DEFAULT_CHORD_ENTRY_MODE) {
   if (!step || !exercise?.chords?.length) return null;
-  const currentOrder = getChordAnswerOrder(exercise.chords[step.chordIndex], step.chordIndex);
+  const currentOrder = getChordAnswerOrder(exercise.chords[step.chordIndex], step.chordIndex, chordEntryMode);
   const currentPosition = currentOrder.indexOf(step.voice);
   if (currentPosition >= 0 && currentPosition < currentOrder.length - 1) {
     return { chordIndex: step.chordIndex, voice: currentOrder[currentPosition + 1] };
   }
   const nextChord = step.chordIndex + 1;
   if (nextChord >= exercise.chords.length) return null;
-  const nextOrder = getChordAnswerOrder(exercise.chords[nextChord], nextChord);
+  const nextOrder = getChordAnswerOrder(exercise.chords[nextChord], nextChord, chordEntryMode);
   return { chordIndex: nextChord, voice: nextOrder[0] ?? "lower" };
 }
 
@@ -3496,10 +3499,10 @@ export default function IntervalTrainerPage() {
     const config = normalizeModeConfig(mode, saved ?? null);
     return buildInitialExerciseForMode(mode, config);
   });
-  const [attemptNotes, setAttemptNotes] = useState(() => makeInitialAttempts(exercise, saved?.harmonicResponseMode ?? DEFAULT_HARMONIC_RESPONSE_MODE));
+  const [attemptNotes, setAttemptNotes] = useState(() => makeInitialAttempts(exercise, saved?.harmonicResponseMode ?? DEFAULT_HARMONIC_RESPONSE_MODE, saved?.chordEntryMode ?? DEFAULT_CHORD_ENTRY_MODE));
   const [nextIndex, setNextIndex] = useState(1);
   const [harmonicStep, setHarmonicStep] = useState(() => firstHarmonicStep(exercise, saved?.harmonicResponseMode ?? DEFAULT_HARMONIC_RESPONSE_MODE));
-  const [chordStep, setChordStep] = useState(() => firstChordStep(exercise));
+  const [chordStep, setChordStep] = useState(() => firstChordStep(exercise, saved?.chordEntryMode ?? DEFAULT_CHORD_ENTRY_MODE));
   const [revealFull, setRevealFull] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [buttonFlash, setButtonFlash] = useState(false);
@@ -4271,10 +4274,10 @@ export default function IntervalTrainerPage() {
           ? buildTwelveToneSeries(count, selectedIntervalKeys, selectedClefKeys)
           : buildMelody(count, selectedIntervalKeys, selectedClefKeys, directionMode)));
     setExercise(nextExercise);
-    setAttemptNotes(makeInitialAttempts(nextExercise, harmonicResponseMode));
+    setAttemptNotes(makeInitialAttempts(nextExercise, harmonicResponseMode, chordEntryMode));
     setNextIndex(1);
     setHarmonicStep(firstHarmonicStep(nextExercise, harmonicResponseMode));
-    setChordStep(firstChordStep(nextExercise));
+    setChordStep(firstChordStep(nextExercise, chordEntryMode));
     setRevealFull(false);
     setPlaybackStartIndex(0);
     setPlaybackCursorIndex(0);
@@ -4303,7 +4306,7 @@ export default function IntervalTrainerPage() {
         }
         return next;
       }));
-      setChordStep(nextChordStepAfter(chordStep, exercise));
+      setChordStep(nextChordStepAfter(chordStep, exercise, chordEntryMode));
       setStats((current) => ({ ...current, correct: current.correct + (correct ? 1 : 0), incorrect: current.incorrect + (correct ? 0 : 1) }));
       return;
     }
@@ -4333,7 +4336,7 @@ export default function IntervalTrainerPage() {
       setNextIndex((current) => current + 1);
       setStats((current) => ({ ...current, incorrect: current.incorrect + 1 }));
     }
-  }, [chordStep, expectedNote, exercise, harmonicResponseMode, harmonicStep, isChordMode, isHarmonicMode, revealFull]);
+  }, [chordStep, expectedNote, exercise, harmonicResponseMode, harmonicStep, isChordMode, isHarmonicMode, revealFull, chordEntryMode]);
 
   const handleRevealFullAnswer = useCallback(() => {
     if (revealFull) return;
@@ -4481,10 +4484,10 @@ export default function IntervalTrainerPage() {
     const config = normalizeModeConfig(mode, rawConfig);
     const freshExercise = buildInitialExerciseForMode(mode, config);
     setExercise(freshExercise);
-    setAttemptNotes(makeInitialAttempts(freshExercise, config.harmonicResponseMode));
+    setAttemptNotes(makeInitialAttempts(freshExercise, config.harmonicResponseMode, config.chordEntryMode));
     setNextIndex(1);
     setHarmonicStep(firstHarmonicStep(freshExercise, config.harmonicResponseMode));
-    setChordStep(firstChordStep(freshExercise));
+    setChordStep(firstChordStep(freshExercise, config.chordEntryMode));
     setRevealFull(false);
     setPlaybackStartIndex(0);
     setPlaybackCursorIndex(0);
@@ -4525,10 +4528,10 @@ export default function IntervalTrainerPage() {
     setChordUpperVolume(DEFAULT_VOICE_VOLUME);
     setModeSettings((current) => ({ ...current, [mode]: normalizeModeConfig(mode, defaultConfigForMode(mode)) }));
     setExercise(freshExercise);
-    setAttemptNotes(makeInitialAttempts(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
+    setAttemptNotes(makeInitialAttempts(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE, DEFAULT_CHORD_ENTRY_MODE));
     setNextIndex(1);
     setHarmonicStep(firstHarmonicStep(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
-    setChordStep(firstChordStep(freshExercise));
+    setChordStep(firstChordStep(freshExercise, DEFAULT_CHORD_ENTRY_MODE));
     setRevealFull(false);
     setPlaybackStartIndex(0);
     setPlaybackCursorIndex(0);
@@ -4809,7 +4812,7 @@ export default function IntervalTrainerPage() {
                       />
                       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3.5">
                         {playbackEvents.map((event, index) => {
-                          const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
+                          const fraction = playbackEvents.length <= 1 ? 0 : index / (playbackEvents.length - 1);
                           const activeTickIndex = isPlaying ? playbackCursorIndex : playbackStartIndex;
                           const isActiveTick = index === activeTickIndex;
                           const isChordFullPoint = isChordMode && event.kind === "full";
@@ -4818,12 +4821,14 @@ export default function IntervalTrainerPage() {
                           const color = isChordMode
                             ? (isChordFullPoint ? "#111827" : "#8a8a93")
                             : "#111827";
+                          const trackInsetPx = 11;
+                          const leftOffsetPx = trackInsetPx * (1 - 2 * fraction) - (widthPx / 2);
                           return (
                             <span
                               key={`playback-tick-${index}`}
-                              className="absolute top-0 rounded-[1px]"
+                              className="absolute top-[2px] rounded-[1px]"
                               style={{
-                                left: `calc(${left}% - ${widthPx / 2}px)`,
+                                left: `calc(${(fraction * 100).toFixed(6)}% + ${leftOffsetPx.toFixed(3)}px)`,
                                 width: `${widthPx}px`,
                                 height: `${heightPx}px`,
                                 backgroundColor: color,
@@ -4835,7 +4840,10 @@ export default function IntervalTrainerPage() {
                       </div>
                       <div className="absolute inset-x-0 bottom-0 z-10 h-4">
                         {playbackEvents.map((event, index) => {
-                          const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
+                          const fraction = playbackEvents.length <= 1 ? 0 : index / (playbackEvents.length - 1);
+                          const trackInsetPx = 11;
+                          const buttonSizePx = 16;
+                          const leftOffsetPx = trackInsetPx * (1 - 2 * fraction) - (buttonSizePx / 2);
                           return (
                             <button
                               key={`playback-select-${index}`}
@@ -4843,8 +4851,8 @@ export default function IntervalTrainerPage() {
                               aria-label={`Seleccionar ${event.label}`}
                               title={event.label}
                               onClick={() => selectPlaybackPoint(index)}
-                              className="absolute top-0 h-4 w-4 -translate-x-1/2 rounded-full bg-transparent"
-                              style={{ left: `${left}%` }}
+                              className="absolute top-0 h-4 w-4 rounded-full bg-transparent"
+                              style={{ left: `calc(${(fraction * 100).toFixed(6)}% + ${leftOffsetPx.toFixed(3)}px)` }}
                             />
                           );
                         })}
