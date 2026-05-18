@@ -2840,23 +2840,24 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
     ctx.lineTo(w / 2, h);
     ctx.stroke();
 
-    // El historial se dibuja como una ventana temporal vertical:
-    // el primer dato visible nace arriba y las nuevas lecturas avanzan hacia abajo.
-    // Se compactan los NaN iniciales para evitar que, al comenzar, el trazo aparezca
-    // pegado a la parte inferior de la línea azul.
+    // Historial vertical invertido: la lectura más reciente nace en la punta
+    // superior de la línea azul/verde actual y las lecturas anteriores se van
+    // desplazando hacia abajo. Eje X = cents, eje Y = antigüedad.
     if (active && centsHistoryRef?.current) {
       const buf = centsHistoryRef.current;
       const len = buf.length;
       const idx = centsHistoryIdxRef.current;
-      const values = [];
-      for (let i = 0; i < len; i += 1) {
-        const value = buf[(idx + i) % len];
-        if (Number.isFinite(value)) values.push(value);
-      }
-
       let drawing = false;
       let previousInTune = false;
-      values.forEach((value, i) => {
+      for (let i = 0; i < len; i += 1) {
+        const j = ((idx - 1 - i) % len + len) % len;
+        const value = buf[j];
+        if (!Number.isFinite(value)) {
+          if (drawing) ctx.stroke();
+          drawing = false;
+          previousInTune = false;
+          continue;
+        }
         const x = xForCents(value);
         const y = (i / Math.max(1, len - 1)) * h;
         const isInTune = Math.abs(value) <= IN_TUNE_THRESHOLD;
@@ -2877,7 +2878,7 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
           ctx.lineTo(x, y);
         }
         previousInTune = isInTune;
-      });
+      }
       if (drawing) ctx.stroke();
     }
   }, [active, cents, centsHistoryIdxRef, centsHistoryRef, completed, micEnabled]);
@@ -3190,8 +3191,14 @@ function TunerPanel({ notes = [], visible = false }) {
           ) : (
             <div className="min-w-[92px] text-center text-2xl font-bold leading-none tracking-tight text-zinc-950 sm:text-3xl">{activeNoteName}</div>
           )}
-          <div className="mt-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold text-zinc-500">
+          <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-[11px] font-semibold text-zinc-500">
             <span className="tabular-nums">{Number.isFinite(cents) ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents` : "—"}</span>
+            {Number.isFinite(detectedHz) ? (
+              <>
+                <span className="text-zinc-300">·</span>
+                <span className="tabular-nums">{detectedHz.toFixed(1)} Hz</span>
+              </>
+            ) : null}
             {completedFlash ? <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold leading-none text-white">✓</span> : null}
           </div>
         </div>
@@ -4624,7 +4631,7 @@ export default function IntervalTrainerPage() {
                 ) : null}
               </div>
 
-              {isChordMode && playbackEvents.length > 1 ? (
+              {(isChordMode || isHarmonicMode) && playbackEvents.length > 1 ? (
                 <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 shadow-sm sm:px-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
