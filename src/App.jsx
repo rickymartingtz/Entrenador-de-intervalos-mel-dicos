@@ -4696,7 +4696,7 @@ export default function IntervalTrainerPage() {
                           return (
                             <span
                               key={`playback-tick-${index}`}
-                              className={`absolute top-0 -translate-x-1/2 rounded-full ${isCurrent ? "h-3 w-1.5 bg-zinc-900" : isChordStart ? "h-3 w-px bg-zinc-500" : "h-2 w-px bg-zinc-300"}`}
+                              className={`absolute top-0 -translate-x-1/2 rounded-full ${isCurrent ? "h-4 w-2 bg-zinc-950" : isChordStart ? "h-4 w-[3px] bg-zinc-950" : "h-3.5 w-[2px] bg-zinc-900"}`}
                               style={{ left: `${left}%` }}
                               aria-hidden="true"
                             />
