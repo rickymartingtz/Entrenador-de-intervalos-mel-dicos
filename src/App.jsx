@@ -4807,17 +4807,21 @@ export default function IntervalTrainerPage() {
                         }}
                         className="relative z-20 w-full"
                       />
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2.5">
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3.5">
                         {playbackEvents.map((event, index) => {
                           const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
+                          const activeTickIndex = isPlaying ? playbackCursorIndex : playbackStartIndex;
+                          const isActiveTick = index === activeTickIndex;
                           const isChordFullPoint = isChordMode && event.kind === "full";
-                          const widthPx = 2;
-                          const heightPx = isChordMode ? (isChordFullPoint ? 12 : 8) : 9;
-                          const color = isChordMode ? (isChordFullPoint ? "#111827" : "#71717a") : "#111827";
+                          const widthPx = isActiveTick ? 3 : 2;
+                          const heightPx = isChordMode ? (isChordFullPoint ? 12 : 6) : 10;
+                          const color = isChordMode
+                            ? (isChordFullPoint ? "#111827" : "#8a8a93")
+                            : "#111827";
                           return (
                             <span
                               key={`playback-tick-${index}`}
-                              className="absolute bottom-[2px] rounded-[1px]"
+                              className="absolute top-0 rounded-[1px]"
                               style={{
                                 left: `calc(${left}% - ${widthPx / 2}px)`,
                                 width: `${widthPx}px`,
