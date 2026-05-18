@@ -4811,11 +4811,18 @@ export default function IntervalTrainerPage() {
                         {playbackEvents.map((event, index) => {
                           const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
                           const isCurrent = index === (isPlaying ? playbackCursorIndex : playbackStartIndex);
-                          const isChordStart = isChordMode && (event.kind === "single" || (event.kind === "full" && (index === 0 || playbackEvents[index - 1]?.chordIndex !== event.chordIndex)));
+                          const isMainChordPoint = isChordMode && (event.kind === "full" || event.kind === "single");
+                          const tickClass = isCurrent
+                            ? "h-2 w-[1.5px] bg-zinc-950"
+                            : isChordMode
+                              ? isMainChordPoint
+                                ? "h-2 w-[1.5px] bg-zinc-900"
+                                : "h-1.5 w-px bg-zinc-500"
+                              : "h-1.5 w-px bg-zinc-800";
                           return (
                             <span
                               key={`playback-tick-${index}`}
-                              className={`absolute top-1 -translate-x-1/2 rounded-full ${isCurrent ? "h-2.5 w-[2px] bg-zinc-950" : isChordStart ? "h-2 w-[1.5px] bg-zinc-900" : "h-1.5 w-px bg-zinc-500"}`}
+                              className={`absolute top-1 -translate-x-1/2 rounded-full ${tickClass}`}
                               style={{ left: `${left}%` }}
                               aria-hidden="true"
                             />
