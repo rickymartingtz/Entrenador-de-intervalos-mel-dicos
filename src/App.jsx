@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import Soundfont from "soundfont-player";
 import * as VF from "vexflow";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 
 function IconBase({ children, className = "h-4 w-4", viewBox = "0 0 24 24" }) {
@@ -4579,6 +4580,7 @@ export default function IntervalTrainerPage() {
   return (
     <>
       <Analytics />
+      <SpeedInsights />
       <AppThemeStyles />
       <div className="min-h-screen overflow-x-hidden bg-zinc-100 px-3 py-4 pb-56 text-zinc-950 sm:px-6 sm:py-6 sm:pb-44 md:px-10 md:py-10 md:pb-36 app-theme-light">
       <div className="mx-auto max-w-[1600px] space-y-4 sm:space-y-6">
