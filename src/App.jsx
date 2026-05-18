@@ -3318,7 +3318,7 @@ function StatBox({ label, value }) {
 
 function BottomStat({ label, value }) {
   return (
-    <div className="min-w-[92px] rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-2 sm:min-w-0 sm:px-3">
+    <div className="min-w-[92px] shrink-0 rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-2 sm:min-w-0 sm:px-3">
       <p className="truncate text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500 sm:text-[10px] sm:tracking-[0.16em]">{label}</p>
       <p className="truncate text-sm font-bold text-zinc-900 sm:text-base">{value}</p>
     </div>
@@ -4794,13 +4794,13 @@ export default function IntervalTrainerPage() {
         </div>
       ) : null}
 
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-3 py-2 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur sm:px-4 sm:py-3">
-        <div className="mx-auto flex w-fit max-w-full flex-nowrap items-stretch justify-center gap-3 overflow-x-auto pb-1 sm:pb-0 md:gap-4">
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 px-0 py-2 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur sm:px-4 sm:py-3">
+        <div className="mx-auto flex w-full max-w-full flex-nowrap items-stretch justify-start gap-2 overflow-x-auto overscroll-x-contain px-3 pb-2 pr-10 [-webkit-overflow-scrolling:touch] sm:w-fit sm:justify-center sm:gap-3 sm:px-0 sm:pb-0 sm:pr-0 md:gap-4">
           <BottomStat label="Tiempo" value={formatTime(stats.totalSeconds)} />
           <button
             type="button"
             onClick={() => setIsTimerPaused((current) => !current)}
-            className={`inline-flex min-w-[104px] items-center justify-center whitespace-normal rounded-xl border px-3 py-2 text-center text-xs font-semibold leading-tight transition ${isTimerPaused ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
+            className={`inline-flex min-w-[104px] shrink-0 items-center justify-center whitespace-normal rounded-xl border px-3 py-2 text-center text-xs font-semibold leading-tight transition ${isTimerPaused ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
           >
             {isTimerPaused ? <span>Reanudar<br />tiempo</span> : <span>Pausar<br />tiempo</span>}
           </button>
@@ -4811,28 +4811,28 @@ export default function IntervalTrainerPage() {
           <button
             type="button"
             onClick={() => addTimeMark("Puntaje guardado")}
-            className="inline-flex min-w-[108px] items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
+            className="inline-flex min-w-[108px] shrink-0 items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
           >
             <span>Guardar<br />puntaje</span>
           </button>
           <button
             type="button"
             onClick={() => setShowProgressPanel((current) => !current)}
-            className={`inline-flex min-w-[92px] items-center justify-center gap-2 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold transition ${showProgressPanel ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
+            className={`inline-flex min-w-[92px] shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold transition ${showProgressPanel ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-500 hover:bg-zinc-100"}`}
           >
             Progreso
           </button>
           <button
             type="button"
             onClick={resetScores}
-            className="inline-flex min-w-[118px] items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
+            className="inline-flex min-w-[118px] shrink-0 items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
           >
             <ResetIcon className="h-4 w-4 shrink-0" /> <span>Reiniciar<br />puntaje</span>
           </button>
           <button
             type="button"
             onClick={resetEverything}
-            className="inline-flex min-w-[118px] items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
+            className="inline-flex min-w-[118px] shrink-0 items-center justify-center gap-2 whitespace-normal rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-xs font-semibold leading-tight text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100"
           >
             <ResetIcon className="h-4 w-4 shrink-0" /> <span>Reiniciar<br />parámetros</span>
           </button>
