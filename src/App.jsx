@@ -4809,7 +4809,7 @@ export default function IntervalTrainerPage() {
                       />
                       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3.5">
                         {playbackEvents.map((event, index) => {
-                          const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
+                          const fraction = playbackEvents.length <= 1 ? 0 : index / (playbackEvents.length - 1);
                           const activeTickIndex = isPlaying ? playbackCursorIndex : playbackStartIndex;
                           const isActiveTick = index === activeTickIndex;
                           const isChordFullPoint = isChordMode && event.kind === "full";
@@ -4818,12 +4818,14 @@ export default function IntervalTrainerPage() {
                           const color = isChordMode
                             ? (isChordFullPoint ? "#111827" : "#8a8a93")
                             : "#111827";
+                          const trackInsetPx = 10;
+                          const leftOffsetPx = trackInsetPx * (1 - 2 * fraction) - (widthPx / 2);
                           return (
                             <span
                               key={`playback-tick-${index}`}
                               className="absolute top-0 rounded-[1px]"
                               style={{
-                                left: `calc(${left}% - ${widthPx / 2}px)`,
+                                left: `calc(${(fraction * 100).toFixed(6)}% + ${leftOffsetPx.toFixed(3)}px)`,
                                 width: `${widthPx}px`,
                                 height: `${heightPx}px`,
                                 backgroundColor: color,
@@ -4835,7 +4837,10 @@ export default function IntervalTrainerPage() {
                       </div>
                       <div className="absolute inset-x-0 bottom-0 z-10 h-4">
                         {playbackEvents.map((event, index) => {
-                          const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
+                          const fraction = playbackEvents.length <= 1 ? 0 : index / (playbackEvents.length - 1);
+                          const trackInsetPx = 10;
+                          const buttonSizePx = 16;
+                          const leftOffsetPx = trackInsetPx * (1 - 2 * fraction) - (buttonSizePx / 2);
                           return (
                             <button
                               key={`playback-select-${index}`}
@@ -4843,8 +4848,8 @@ export default function IntervalTrainerPage() {
                               aria-label={`Seleccionar ${event.label}`}
                               title={event.label}
                               onClick={() => selectPlaybackPoint(index)}
-                              className="absolute top-0 h-4 w-4 -translate-x-1/2 rounded-full bg-transparent"
-                              style={{ left: `${left}%` }}
+                              className="absolute top-0 h-4 w-4 rounded-full bg-transparent"
+                              style={{ left: `calc(${(fraction * 100).toFixed(6)}% + ${leftOffsetPx.toFixed(3)}px)` }}
                             />
                           );
                         })}
