@@ -3450,6 +3450,45 @@ function AppThemeStyles() {
       .app-theme-light input[type="range"] {
         accent-color: var(--aural-range);
       }
+      .playback-slider {
+        -webkit-appearance: none;
+        appearance: none;
+        background: transparent;
+      }
+      .playback-slider:focus {
+        outline: none;
+      }
+      .playback-slider::-webkit-slider-runnable-track {
+        height: 10px;
+        border-radius: 9999px;
+        background: #e5e7eb;
+        border: 1px solid #a1a1aa;
+      }
+      .playback-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 20px;
+        height: 20px;
+        border-radius: 9999px;
+        background: #0ea5e9;
+        border: 0;
+        margin-top: -6px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+      }
+      .playback-slider::-moz-range-track {
+        height: 10px;
+        border-radius: 9999px;
+        background: #e5e7eb;
+        border: 1px solid #a1a1aa;
+      }
+      .playback-slider::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+        border-radius: 9999px;
+        background: #0ea5e9;
+        border: 0;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+      }
     `}</style>
   );
 }
@@ -4805,7 +4844,7 @@ export default function IntervalTrainerPage() {
                         onChange={(event) => {
                           selectPlaybackPoint(Number(event.target.value));
                         }}
-                        className="relative z-20 w-full"
+                        className="playback-slider relative z-20 w-full"
                       />
                       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3.5">
                         {playbackEvents.map((event, index) => {
