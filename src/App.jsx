@@ -4612,7 +4612,7 @@ export default function IntervalTrainerPage() {
 
               {visibleDirectionOptions.length > 0 ? (
                 <div className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm font-medium text-zinc-700">Dirección para ejercicios cortos</span>
                     <Badge>{SHORT_DIRECTION_OPTIONS.find((option) => option.key === directionMode)?.label ?? "Libre"}</Badge>
                   </div>
@@ -4756,9 +4756,9 @@ export default function IntervalTrainerPage() {
             </div>
           </div>
 
-          <div className="min-w-0 space-y-6">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
-              <div className="mb-4 grid gap-2 sm:flex sm:flex-wrap sm:gap-3">
+          <div className="min-w-0 space-y-4">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4">
+              <div className="mb-3 grid gap-2 sm:flex sm:flex-wrap sm:gap-2">
                 <ActionButton active={buttonFlash} onClick={startExercise} disabled={!canGenerate}>
                   <RefreshIcon className="h-4 w-4" /> Generar nueva sucesión
                 </ActionButton>
@@ -4778,24 +4778,24 @@ export default function IntervalTrainerPage() {
               </div>
 
               {(isChordMode || isHarmonicMode) && playbackEvents.length > 1 ? (
-                <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 shadow-sm sm:px-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 shadow-sm sm:px-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Línea de reproducción</p>
-                      <p className="text-sm font-semibold text-zinc-800">{playbackEvents[isPlaying ? playbackCursorIndex : playbackStartIndex]?.label ?? 'Inicio'}</p>
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Línea de reproducción</p>
+                      <p className="text-xs font-semibold text-zinc-800">{playbackEvents[isPlaying ? playbackCursorIndex : playbackStartIndex]?.label ?? 'Inicio'}</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={() => isPlaying ? stopPlayback() : playExercise(exercise, playbackStartIndex, false)}
-                        className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${isPlaying ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-50"}`}
+                        className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${isPlaying ? "aural-black-button" : "border-zinc-300 bg-white text-zinc-800 hover:border-zinc-500 hover:bg-zinc-50"}`}
                       >
                         {isPlaying ? "Detener" : "Escuchar desde aquí"}
                       </button>
                     </div>
                   </div>
-                  <div className="mt-3 space-y-2">
-                    <div className="relative pt-1 pb-3">
+                  <div className="mt-1.5 space-y-1">
+                    <div className="relative pt-0.5 pb-2.5">
                       <input
                         type="range"
                         min={0}
@@ -4807,7 +4807,7 @@ export default function IntervalTrainerPage() {
                         }}
                         className="relative z-20 w-full"
                       />
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3">
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2.5">
                         {playbackEvents.map((event, index) => {
                           const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
                           const isCurrent = index === (isPlaying ? playbackCursorIndex : playbackStartIndex);
@@ -4815,14 +4815,14 @@ export default function IntervalTrainerPage() {
                           return (
                             <span
                               key={`playback-tick-${index}`}
-                              className={`absolute top-1 -translate-x-1/2 rounded-full ${isCurrent ? "h-3 w-[3px] bg-zinc-950" : isChordStart ? "h-2.5 w-[2px] bg-zinc-900" : "h-2 w-px bg-zinc-600"}`}
+                              className={`absolute top-1 -translate-x-1/2 rounded-full ${isCurrent ? "h-2.5 w-[2px] bg-zinc-950" : isChordStart ? "h-2 w-[1.5px] bg-zinc-900" : "h-1.5 w-px bg-zinc-500"}`}
                               style={{ left: `${left}%` }}
                               aria-hidden="true"
                             />
                           );
                         })}
                       </div>
-                      <div className="absolute inset-x-0 bottom-0 z-10 h-5">
+                      <div className="absolute inset-x-0 bottom-0 z-10 h-4">
                         {playbackEvents.map((event, index) => {
                           const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
                           return (
@@ -4832,7 +4832,7 @@ export default function IntervalTrainerPage() {
                               aria-label={`Seleccionar ${event.label}`}
                               title={event.label}
                               onClick={() => selectPlaybackPoint(index)}
-                              className="absolute top-0 h-5 w-5 -translate-x-1/2 rounded-full bg-transparent"
+                              className="absolute top-0 h-4 w-4 -translate-x-1/2 rounded-full bg-transparent"
                               style={{ left: `${left}%` }}
                             />
                           );
@@ -4847,9 +4847,9 @@ export default function IntervalTrainerPage() {
                 </div>
               ) : null}
 
-              <div className="min-w-0 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-sm sm:p-2">
+              <div className="min-w-0 overflow-hidden rounded-xl border border-zinc-200 bg-white p-1 shadow-sm sm:p-1.5">
                 <Staff exercise={exercise} attemptNotes={attemptNotes} revealFull={revealFull} onNotePress={playSingleNote} chordEntryMode={chordEntryMode} />
-                <div className="border-t border-zinc-100 px-2 pb-3 pt-1">
+                <div className="border-t border-zinc-100 px-2 pb-2 pt-1">
                   <TunerPanel notes={tuningNotes} visible={exerciseComplete || revealFull} />
                   {exerciseComplete || revealFull ? null : (
                     <PianoKeyboard onPress={handleKeyboardPress} disabled={false} />
@@ -4858,7 +4858,7 @@ export default function IntervalTrainerPage() {
               </div>
 
               {exerciseComplete || revealFull ? (
-                <div className="mt-4 grid gap-3 sm:gap-4 lg:grid-cols-2">
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
                   {(!isHarmonicMode && !isChordMode) ? (
                     <div className="rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
                       <p className="text-sm font-medium text-zinc-500">Modelos reconocibles en la sucesión</p>
