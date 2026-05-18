@@ -4811,17 +4811,19 @@ export default function IntervalTrainerPage() {
                         {playbackEvents.map((event, index) => {
                           const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
                           const isChordFullPoint = isChordMode && event.kind === "full";
-                          const isChordSecondaryPoint = isChordMode && !isChordFullPoint;
-                          const tickStyle = isChordFullPoint
-                            ? { width: "2px", height: "12px", backgroundColor: "#111827" }
-                            : isChordSecondaryPoint
-                              ? { width: "1px", height: "7px", backgroundColor: "#71717a" }
-                              : { width: "1px", height: "8px", backgroundColor: "#27272a" };
+                          const widthPx = 2;
+                          const heightPx = isChordMode ? (isChordFullPoint ? 12 : 8) : 9;
+                          const color = isChordMode ? (isChordFullPoint ? "#111827" : "#71717a") : "#111827";
                           return (
                             <span
                               key={`playback-tick-${index}`}
-                              className="absolute bottom-[2px] -translate-x-1/2 rounded-[1px]"
-                              style={{ left: `${left}%`, ...tickStyle }}
+                              className="absolute bottom-[2px] rounded-[1px]"
+                              style={{
+                                left: `calc(${left}% - ${widthPx / 2}px)`,
+                                width: `${widthPx}px`,
+                                height: `${heightPx}px`,
+                                backgroundColor: color,
+                              }}
                               aria-hidden="true"
                             />
                           );
