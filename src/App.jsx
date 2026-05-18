@@ -119,6 +119,7 @@ const DEFAULT_CHORD_INTERVAL_KEYS = ["P4", "P5", "P8"];
 const DEFAULT_CLEF_KEYS = ["treble"];
 const DEFAULT_DIRECTION_MODE = "random";
 const DEFAULT_TRAINER_MODE = "melodic";
+const TRAINER_MODES = ["melodic", "harmonic", "chords"];
 const DEFAULT_HARMONIC_RESPONSE_MODE = "givenBass";
 const DEFAULT_CHORD_ENTRY_MODE = "gradual";
 const DEFAULT_CHORD_REPEAT = true;
@@ -1964,17 +1965,24 @@ function getPlaybackEventDescriptors(exercise, chordEntryMode = DEFAULT_CHORD_EN
   return (exercise?.sequence ?? []).map((note, index) => ({ label: `Nota ${index + 1}`, noteIndex: index }));
 }
 
-function initialSettings() {
-  const defaults = {
+
+function noteCountBoundsForMode(mode, useTwelveToneSeries = false) {
+  if (mode === "chords") return [CHORD_MIN_COUNT, CHORD_MAX_COUNT];
+  if (mode === "harmonic") return [HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS];
+  if (useTwelveToneSeries) return [TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES];
+  return [MIN_NOTES, MAX_NOTES];
+}
+
+function defaultConfigForMode(mode) {
+  return {
     noteCount: DEFAULT_NOTE_COUNT,
     tempo: DEFAULT_TEMPO,
     volume: DEFAULT_VOLUME,
     instrument: DEFAULT_INSTRUMENT,
-    selectedIntervalKeys: defaultIntervalKeysForMode(DEFAULT_TRAINER_MODE),
+    selectedIntervalKeys: defaultIntervalKeysForMode(mode),
     selectedClefKeys: DEFAULT_CLEF_KEYS,
     directionMode: DEFAULT_DIRECTION_MODE,
     useTwelveToneSeries: false,
-    trainerMode: DEFAULT_TRAINER_MODE,
     harmonicResponseMode: DEFAULT_HARMONIC_RESPONSE_MODE,
     chordEntryMode: DEFAULT_CHORD_ENTRY_MODE,
     chordRepeat: DEFAULT_CHORD_REPEAT,
@@ -1990,37 +1998,100 @@ function initialSettings() {
     chordMiddleVolume: DEFAULT_VOICE_VOLUME,
     chordUpperVolume: DEFAULT_VOICE_VOLUME,
   };
+}
+
+function normalizeModeConfig(mode, rawConfig = null) {
+  const defaults = defaultConfigForMode(mode);
+  const raw = rawConfig && typeof rawConfig === "object" ? rawConfig : {};
+  const merged = { ...defaults, ...raw };
+  const useTwelve = mode === "melodic" ? Boolean(merged.useTwelveToneSeries) : false;
+  const [minCount, maxCount] = noteCountBoundsForMode(mode, useTwelve);
+  const rawIntervals = Object.prototype.hasOwnProperty.call(raw, "selectedIntervalKeys") ? raw.selectedIntervalKeys : defaults.selectedIntervalKeys;
+  const rawClefs = Object.prototype.hasOwnProperty.call(raw, "selectedClefKeys") ? raw.selectedClefKeys : defaults.selectedClefKeys;
+  return {
+    ...merged,
+    noteCount: clamp(Number(merged.noteCount ?? defaults.noteCount), minCount, maxCount),
+    tempo: clamp(Number(merged.tempo ?? defaults.tempo), MIN_TEMPO, MAX_TEMPO),
+    volume: clamp(Number(merged.volume ?? defaults.volume), MIN_VOLUME, MAX_VOLUME),
+    instrument: INSTRUMENTS.some((item) => item.value === merged.instrument) ? merged.instrument : DEFAULT_INSTRUMENT,
+    selectedIntervalKeys: sanitizeIntervalSelection(rawIntervals ?? defaults.selectedIntervalKeys),
+    selectedClefKeys: sanitizeClefSelection(rawClefs ?? defaults.selectedClefKeys),
+    directionMode: sanitizeDirectionMode(merged.directionMode ?? defaults.directionMode, Number(merged.noteCount ?? defaults.noteCount)),
+    useTwelveToneSeries: useTwelve,
+    harmonicResponseMode: merged.harmonicResponseMode === "full" ? "full" : "givenBass",
+    chordEntryMode: merged.chordEntryMode === "direct" ? "direct" : "gradual",
+    chordRepeat: typeof merged.chordRepeat === "boolean" ? merged.chordRepeat : DEFAULT_CHORD_REPEAT,
+    // La separación de acordes queda fija por ahora: salida gradual + pequeño silencio real.
+    chordGapMode: DEFAULT_CHORD_GAP_MODE,
+    selectedChordLinkModes: sanitizeChordLinkModes(merged.selectedChordLinkModes ?? DEFAULT_CHORD_LINK_MODES),
+    chordBassInstrument: INSTRUMENTS.some((item) => item.value === merged.chordBassInstrument) ? merged.chordBassInstrument : DEFAULT_CHORD_BASS_INSTRUMENT,
+    chordMiddleInstrument: INSTRUMENTS.some((item) => item.value === merged.chordMiddleInstrument) ? merged.chordMiddleInstrument : DEFAULT_CHORD_MIDDLE_INSTRUMENT,
+    chordUpperInstrument: INSTRUMENTS.some((item) => item.value === merged.chordUpperInstrument) ? merged.chordUpperInstrument : DEFAULT_CHORD_UPPER_INSTRUMENT,
+    chordInstrumentPreset: CHORD_INSTRUMENT_PRESETS.some((item) => item.key === merged.chordInstrumentPreset) ? merged.chordInstrumentPreset : DEFAULT_CHORD_INSTRUMENT_PRESET,
+    harmonicLowerVolume: clamp(Number(merged.harmonicLowerVolume ?? defaults.harmonicLowerVolume), MIN_VOLUME, MAX_VOLUME),
+    harmonicUpperVolume: clamp(Number(merged.harmonicUpperVolume ?? defaults.harmonicUpperVolume), MIN_VOLUME, MAX_VOLUME),
+    chordBassVolume: clamp(Number(merged.chordBassVolume ?? defaults.chordBassVolume), MIN_VOLUME, MAX_VOLUME),
+    chordMiddleVolume: clamp(Number(merged.chordMiddleVolume ?? defaults.chordMiddleVolume), MIN_VOLUME, MAX_VOLUME),
+    chordUpperVolume: clamp(Number(merged.chordUpperVolume ?? defaults.chordUpperVolume), MIN_VOLUME, MAX_VOLUME),
+  };
+}
+
+function buildInitialExerciseForMode(mode, config) {
+  const safeConfig = normalizeModeConfig(mode, config);
+  if (mode === "chords") {
+    return buildChordSequence(
+      clamp(safeConfig.noteCount, CHORD_MIN_COUNT, CHORD_MAX_COUNT),
+      safeConfig.selectedIntervalKeys,
+      safeConfig.selectedClefKeys,
+      safeConfig.selectedChordLinkModes,
+    );
+  }
+  if (mode === "harmonic") {
+    return buildHarmonicSequence(
+      clamp(safeConfig.noteCount, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS),
+      safeConfig.selectedIntervalKeys,
+      safeConfig.selectedClefKeys,
+    );
+  }
+  const count = safeConfig.useTwelveToneSeries
+    ? clamp(safeConfig.noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES)
+    : clamp(safeConfig.noteCount, MIN_NOTES, MAX_NOTES);
+  return safeConfig.useTwelveToneSeries
+    ? buildTwelveToneSeries(count, safeConfig.selectedIntervalKeys, safeConfig.selectedClefKeys)
+    : buildMelody(count, safeConfig.selectedIntervalKeys, safeConfig.selectedClefKeys, safeConfig.directionMode);
+}
+
+function defaultModeSettings() {
+  return TRAINER_MODES.reduce((acc, mode) => {
+    acc[mode] = defaultConfigForMode(mode);
+    return acc;
+  }, {});
+}
+
+function initialSettings() {
+  const modeDefaults = defaultModeSettings();
+  const defaults = {
+    ...modeDefaults[DEFAULT_TRAINER_MODE],
+    trainerMode: DEFAULT_TRAINER_MODE,
+    modeSettings: modeDefaults,
+  };
   try {
     const stored = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) || "null");
     if (!stored) return defaults;
     const storedMode = ["melodic", "harmonic", "chords"].includes(stored.trainerMode) ? stored.trainerMode : defaults.trainerMode;
-    const intervalFallback = defaultIntervalKeysForMode(storedMode);
+    const rawModeSettings = stored.modeSettings && typeof stored.modeSettings === "object" ? stored.modeSettings : {};
+    const modeSettings = TRAINER_MODES.reduce((acc, mode) => {
+      // Compatibilidad con guardados antiguos: la configuración plana anterior se asigna al modo activo.
+      const source = rawModeSettings[mode] ?? (mode === storedMode ? stored : null);
+      acc[mode] = normalizeModeConfig(mode, source);
+      return acc;
+    }, {});
+    const active = modeSettings[storedMode] ?? normalizeModeConfig(storedMode, null);
     return {
       ...defaults,
-      ...stored,
-      selectedIntervalKeys: sanitizeIntervalSelection(stored.selectedIntervalKeys ?? intervalFallback),
-      selectedClefKeys: sanitizeClefSelection(stored.selectedClefKeys ?? defaults.selectedClefKeys),
-      directionMode: sanitizeDirectionMode(stored.directionMode ?? defaults.directionMode, Number(stored.noteCount ?? defaults.noteCount)),
-      noteCount: clamp(Number(stored.noteCount ?? defaults.noteCount), MIN_NOTES, MAX_NOTES),
-      tempo: clamp(Number(stored.tempo ?? defaults.tempo), MIN_TEMPO, MAX_TEMPO),
-      volume: clamp(Number(stored.volume ?? defaults.volume), MIN_VOLUME, MAX_VOLUME),
-      instrument: INSTRUMENTS.some((item) => item.value === stored.instrument) ? stored.instrument : DEFAULT_INSTRUMENT,
+      ...active,
       trainerMode: storedMode,
-      harmonicResponseMode: stored.harmonicResponseMode === "full" ? "full" : "givenBass",
-      chordEntryMode: stored.chordEntryMode === "direct" ? "direct" : "gradual",
-      chordRepeat: typeof stored.chordRepeat === "boolean" ? stored.chordRepeat : DEFAULT_CHORD_REPEAT,
-      // La separación de acordes queda fija por ahora: salida gradual + pequeño silencio real.
-      chordGapMode: DEFAULT_CHORD_GAP_MODE,
-      selectedChordLinkModes: sanitizeChordLinkModes(stored.selectedChordLinkModes ?? DEFAULT_CHORD_LINK_MODES),
-      chordBassInstrument: INSTRUMENTS.some((item) => item.value === stored.chordBassInstrument) ? stored.chordBassInstrument : DEFAULT_CHORD_BASS_INSTRUMENT,
-      chordMiddleInstrument: INSTRUMENTS.some((item) => item.value === stored.chordMiddleInstrument) ? stored.chordMiddleInstrument : DEFAULT_CHORD_MIDDLE_INSTRUMENT,
-      chordUpperInstrument: INSTRUMENTS.some((item) => item.value === stored.chordUpperInstrument) ? stored.chordUpperInstrument : DEFAULT_CHORD_UPPER_INSTRUMENT,
-      chordInstrumentPreset: CHORD_INSTRUMENT_PRESETS.some((item) => item.key === stored.chordInstrumentPreset) ? stored.chordInstrumentPreset : DEFAULT_CHORD_INSTRUMENT_PRESET,
-      harmonicLowerVolume: clamp(Number(stored.harmonicLowerVolume ?? defaults.harmonicLowerVolume), MIN_VOLUME, MAX_VOLUME),
-      harmonicUpperVolume: clamp(Number(stored.harmonicUpperVolume ?? defaults.harmonicUpperVolume), MIN_VOLUME, MAX_VOLUME),
-      chordBassVolume: clamp(Number(stored.chordBassVolume ?? defaults.chordBassVolume), MIN_VOLUME, MAX_VOLUME),
-      chordMiddleVolume: clamp(Number(stored.chordMiddleVolume ?? defaults.chordMiddleVolume), MIN_VOLUME, MAX_VOLUME),
-      chordUpperVolume: clamp(Number(stored.chordUpperVolume ?? defaults.chordUpperVolume), MIN_VOLUME, MAX_VOLUME),
+      modeSettings,
     };
   } catch {
     return defaults;
@@ -3419,20 +3490,11 @@ export default function IntervalTrainerPage() {
   const [chordBassVolume, setChordBassVolume] = useState(saved?.chordBassVolume ?? DEFAULT_VOICE_VOLUME);
   const [chordMiddleVolume, setChordMiddleVolume] = useState(saved?.chordMiddleVolume ?? DEFAULT_VOICE_VOLUME);
   const [chordUpperVolume, setChordUpperVolume] = useState(saved?.chordUpperVolume ?? DEFAULT_VOICE_VOLUME);
+  const [modeSettings, setModeSettings] = useState(saved?.modeSettings ?? defaultModeSettings());
   const [exercise, setExercise] = useState(() => {
     const mode = saved?.trainerMode ?? DEFAULT_TRAINER_MODE;
-    if (mode === "chords") {
-      return buildChordSequence(clamp(saved?.noteCount ?? 4, CHORD_MIN_COUNT, CHORD_MAX_COUNT), saved?.selectedIntervalKeys ?? DEFAULT_CHORD_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS, saved?.selectedChordLinkModes ?? DEFAULT_CHORD_LINK_MODES);
-    }
-    if (mode === "harmonic") {
-      return buildHarmonicSequence(clamp(saved?.noteCount ?? 4, HARMONIC_MIN_PAIRS, HARMONIC_MAX_PAIRS), saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS);
-    }
-    const count = saved?.useTwelveToneSeries
-      ? clamp(saved.noteCount, TWELVE_TONE_MIN_NOTES, TWELVE_TONE_MAX_NOTES)
-      : clamp(saved?.noteCount ?? DEFAULT_NOTE_COUNT, MIN_NOTES, MAX_NOTES);
-    return saved?.useTwelveToneSeries
-      ? buildTwelveToneSeries(count, saved.selectedIntervalKeys, saved.selectedClefKeys)
-      : buildMelody(count, saved?.selectedIntervalKeys ?? DEFAULT_INTERVAL_KEYS, saved?.selectedClefKeys ?? DEFAULT_CLEF_KEYS, saved?.directionMode ?? DEFAULT_DIRECTION_MODE);
+    const config = normalizeModeConfig(mode, saved ?? null);
+    return buildInitialExerciseForMode(mode, config);
   });
   const [attemptNotes, setAttemptNotes] = useState(() => makeInitialAttempts(exercise, saved?.harmonicResponseMode ?? DEFAULT_HARMONIC_RESPONSE_MODE));
   const [nextIndex, setNextIndex] = useState(1);
@@ -3522,35 +3584,47 @@ export default function IntervalTrainerPage() {
     return () => window.clearInterval(timer);
   }, [isTimerPaused]);
 
+  const collectCurrentModeConfig = useCallback(() => normalizeModeConfig(trainerMode, {
+    noteCount,
+    tempo,
+    volume,
+    instrument,
+    selectedIntervalKeys,
+    selectedClefKeys,
+    directionMode,
+    useTwelveToneSeries,
+    harmonicResponseMode,
+    chordEntryMode,
+    chordRepeat,
+    chordGapMode,
+    selectedChordLinkModes,
+    chordBassInstrument,
+    chordMiddleInstrument,
+    chordUpperInstrument,
+    chordInstrumentPreset,
+    harmonicLowerVolume,
+    harmonicUpperVolume,
+    chordBassVolume,
+    chordMiddleVolume,
+    chordUpperVolume,
+  }), [chordBassInstrument, chordBassVolume, chordEntryMode, chordGapMode, chordInstrumentPreset, chordMiddleInstrument, chordMiddleVolume, chordRepeat, chordUpperInstrument, chordUpperVolume, directionMode, harmonicLowerVolume, harmonicResponseMode, harmonicUpperVolume, instrument, noteCount, selectedChordLinkModes, selectedClefKeys, selectedIntervalKeys, tempo, trainerMode, useTwelveToneSeries, volume]);
+
+  useEffect(() => {
+    const currentConfig = collectCurrentModeConfig();
+    setModeSettings((current) => ({ ...current, [trainerMode]: currentConfig }));
+  }, [collectCurrentModeConfig, trainerMode]);
+
   useEffect(() => {
     try {
+      const currentConfig = collectCurrentModeConfig();
+      const nextModeSettings = { ...modeSettings, [trainerMode]: currentConfig };
       window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-        noteCount,
-        tempo,
-        volume,
-        instrument,
-        selectedIntervalKeys,
-        selectedClefKeys,
-        directionMode,
-        useTwelveToneSeries,
+        ...currentConfig,
         trainerMode,
-        harmonicResponseMode,
-        chordEntryMode,
-        chordRepeat,
-        chordGapMode,
-        selectedChordLinkModes,
-        chordBassInstrument,
-        chordMiddleInstrument,
-        chordUpperInstrument,
-        chordInstrumentPreset,
-        harmonicLowerVolume,
-        harmonicUpperVolume,
-        chordBassVolume,
-        chordMiddleVolume,
-        chordUpperVolume,
+        modeSettings: nextModeSettings,
       }));
     } catch {}
-  }, [chordBassInstrument, chordBassVolume, chordEntryMode, chordGapMode, chordInstrumentPreset, chordMiddleInstrument, chordMiddleVolume, chordRepeat, chordUpperInstrument, chordUpperVolume, directionMode, harmonicLowerVolume, harmonicResponseMode, harmonicUpperVolume, instrument, noteCount, selectedChordLinkModes, selectedClefKeys, selectedIntervalKeys, tempo, trainerMode, useTwelveToneSeries, volume]);
+  }, [collectCurrentModeConfig, modeSettings, trainerMode]);
 
   useEffect(() => {
     try {
@@ -4376,6 +4450,47 @@ export default function IntervalTrainerPage() {
     } catch {}
   }, []);
 
+  const applyModeConfig = useCallback((mode, rawConfig) => {
+    const config = normalizeModeConfig(mode, rawConfig);
+    setNoteCount(config.noteCount);
+    setTempo(config.tempo);
+    setVolume(config.volume);
+    setInstrument(config.instrument);
+    setSelectedIntervalKeys(config.selectedIntervalKeys);
+    setSelectedClefKeys(config.selectedClefKeys);
+    setDirectionMode(config.directionMode);
+    setUseTwelveToneSeries(config.useTwelveToneSeries);
+    setHarmonicResponseMode(config.harmonicResponseMode);
+    setChordEntryMode(config.chordEntryMode);
+    setChordRepeat(config.chordRepeat);
+    setChordGapMode(config.chordGapMode);
+    setSelectedChordLinkModes(config.selectedChordLinkModes);
+    setChordBassInstrument(config.chordBassInstrument);
+    setChordMiddleInstrument(config.chordMiddleInstrument);
+    setChordUpperInstrument(config.chordUpperInstrument);
+    setChordInstrumentPreset(config.chordInstrumentPreset);
+    setHarmonicLowerVolume(config.harmonicLowerVolume);
+    setHarmonicUpperVolume(config.harmonicUpperVolume);
+    setChordBassVolume(config.chordBassVolume);
+    setChordMiddleVolume(config.chordMiddleVolume);
+    setChordUpperVolume(config.chordUpperVolume);
+    return config;
+  }, []);
+
+  const resetExerciseViewForMode = useCallback((mode, rawConfig) => {
+    const config = normalizeModeConfig(mode, rawConfig);
+    const freshExercise = buildInitialExerciseForMode(mode, config);
+    setExercise(freshExercise);
+    setAttemptNotes(makeInitialAttempts(freshExercise, config.harmonicResponseMode));
+    setNextIndex(1);
+    setHarmonicStep(firstHarmonicStep(freshExercise, config.harmonicResponseMode));
+    setChordStep(firstChordStep(freshExercise));
+    setRevealFull(false);
+    setPlaybackStartIndex(0);
+    setPlaybackCursorIndex(0);
+    return freshExercise;
+  }, []);
+
   const resetEverything = useCallback(() => {
     stopPlayback();
     const mode = trainerMode;
@@ -4408,12 +4523,15 @@ export default function IntervalTrainerPage() {
     setChordBassVolume(DEFAULT_VOICE_VOLUME);
     setChordMiddleVolume(DEFAULT_VOICE_VOLUME);
     setChordUpperVolume(DEFAULT_VOICE_VOLUME);
+    setModeSettings((current) => ({ ...current, [mode]: normalizeModeConfig(mode, defaultConfigForMode(mode)) }));
     setExercise(freshExercise);
     setAttemptNotes(makeInitialAttempts(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
     setNextIndex(1);
     setHarmonicStep(firstHarmonicStep(freshExercise, DEFAULT_HARMONIC_RESPONSE_MODE));
     setChordStep(firstChordStep(freshExercise));
     setRevealFull(false);
+    setPlaybackStartIndex(0);
+    setPlaybackCursorIndex(0);
   }, [stopPlayback, trainerMode]);
 
   useEffect(() => {
@@ -4428,14 +4546,15 @@ export default function IntervalTrainerPage() {
   }, [trainerMode]);
 
   const changeTrainerMode = useCallback((nextMode) => {
-    setSelectedIntervalKeys((current) => {
-      const currentModeDefault = defaultIntervalKeysForMode(trainerMode);
-      const nextModeDefault = defaultIntervalKeysForMode(nextMode);
-      if (sameIntervalKeySet(current, currentModeDefault)) return nextModeDefault;
-      return current;
-    });
+    if (!TRAINER_MODES.includes(nextMode) || nextMode === trainerMode) return;
+    stopPlayback();
+    const currentConfig = collectCurrentModeConfig();
+    const nextConfig = normalizeModeConfig(nextMode, modeSettings[nextMode] ?? defaultConfigForMode(nextMode));
+    setModeSettings((current) => ({ ...current, [trainerMode]: currentConfig, [nextMode]: nextConfig }));
     setTrainerMode(nextMode);
-  }, [trainerMode]);
+    applyModeConfig(nextMode, nextConfig);
+    resetExerciseViewForMode(nextMode, nextConfig);
+  }, [applyModeConfig, collectCurrentModeConfig, modeSettings, resetExerciseViewForMode, stopPlayback, trainerMode]);
 
   const instrumentMountRef = useRef(false);
   useEffect(() => {
@@ -4692,11 +4811,11 @@ export default function IntervalTrainerPage() {
                         {playbackEvents.map((event, index) => {
                           const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
                           const isCurrent = index === (isPlaying ? playbackCursorIndex : playbackStartIndex);
-                          const isChordStart = event.kind === "single" || (event.kind === "full" && (index === 0 || playbackEvents[index - 1]?.chordIndex !== event.chordIndex));
+                          const isChordStart = isChordMode && (event.kind === "single" || (event.kind === "full" && (index === 0 || playbackEvents[index - 1]?.chordIndex !== event.chordIndex)));
                           return (
                             <span
                               key={`playback-tick-${index}`}
-                              className={`absolute top-0 -translate-x-1/2 rounded-full ${isCurrent ? "h-4 w-2 bg-zinc-950" : isChordStart ? "h-4 w-[3px] bg-zinc-950" : "h-3.5 w-[2px] bg-zinc-900"}`}
+                              className={`absolute top-1 -translate-x-1/2 rounded-full ${isCurrent ? "h-3 w-[3px] bg-zinc-950" : isChordStart ? "h-2.5 w-[2px] bg-zinc-900" : "h-2 w-px bg-zinc-600"}`}
                               style={{ left: `${left}%` }}
                               aria-hidden="true"
                             />
