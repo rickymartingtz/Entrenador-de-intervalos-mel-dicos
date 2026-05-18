@@ -2840,25 +2840,25 @@ function TunerStrip({ cents, label, sublabel, micEnabled, active, centsHistoryRe
     ctx.lineTo(w / 2, h);
     ctx.stroke();
 
-    // El historial baja verticalmente: eje X = cents, eje Y = tiempo.
-    // El trazo arranca arriba incluso cuando el buffer todavía no está lleno,
-    // y después avanza hacia abajo conforme entran nuevas lecturas.
+    // El historial se dibuja como una ventana temporal vertical:
+    // el primer dato visible nace arriba y las nuevas lecturas avanzan hacia abajo.
+    // Se compactan los NaN iniciales para evitar que, al comenzar, el trazo aparezca
+    // pegado a la parte inferior de la línea azul.
     if (active && centsHistoryRef?.current) {
       const buf = centsHistoryRef.current;
       const len = buf.length;
       const idx = centsHistoryIdxRef.current;
       const values = [];
       for (let i = 0; i < len; i += 1) {
-        const j = (idx + i) % len;
-        const value = buf[j];
+        const value = buf[(idx + i) % len];
         if (Number.isFinite(value)) values.push(value);
       }
 
       let drawing = false;
       let previousInTune = false;
-      values.forEach((value, index) => {
+      values.forEach((value, i) => {
         const x = xForCents(value);
-        const y = (index / Math.max(1, len - 1)) * h;
+        const y = (i / Math.max(1, len - 1)) * h;
         const isInTune = Math.abs(value) <= IN_TUNE_THRESHOLD;
         if (!drawing) {
           ctx.beginPath();
