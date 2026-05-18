@@ -184,7 +184,7 @@ const STATS_KEY = "intervalTrainer.stats.v11";
 const MARKS_KEY = "intervalTrainer.marks.v12";
 const SOUNDFONT_LIBRARY = "MusyngKite";
 const SOUNDFONT_BASE_URL = "https://gleitz.github.io/midi-js-soundfonts";
-const PITCH_HISTORY_LEN = 80;
+const PITCH_HISTORY_LEN = 32;
 const TUNER_RANGE_CENTS = 50;
 const IN_TUNE_THRESHOLD = 10;
 const TUNER_HOLD_OPTIONS = [0.5, 1, 1.5, 2, 3, 4];
@@ -4070,6 +4070,33 @@ export default function IntervalTrainerPage() {
     }
   }, [chordBassInstrument, chordEntryMode, chordGapMode, chordMiddleInstrument, chordRepeat, chordUpperInstrument, createFallbackVoice, ensureAudioContext, exercise, getSoundfontInstrument, getVoiceVolumeScalar, playSoundfontWithManualEnvelope, selectedInstrument, setAudioOutputVolume, stopAllAudio, tempo, volume]);
 
+  const selectPlaybackPoint = useCallback((index) => {
+    const safeIndex = clamp(Number(index) || 0, 0, Math.max(0, playbackEvents.length - 1));
+    setPlaybackStartIndex(safeIndex);
+    setPlaybackCursorIndex(safeIndex);
+    if (isPlaying && (trainerMode === "chords" || trainerMode === "harmonic") && playbackEvents.length > 1) {
+      playExercise(exercise, safeIndex, false);
+    }
+  }, [exercise, isPlaying, playExercise, playbackEvents.length, trainerMode]);
+
+  useEffect(() => {
+    const handleSpacePlayback = (event) => {
+      if (event.code !== "Space" || event.repeat) return;
+      const target = event.target;
+      const tagName = target?.tagName?.toLowerCase?.() ?? "";
+      if (["input", "textarea", "select", "button"].includes(tagName) || target?.isContentEditable) return;
+      if (!((trainerMode === "chords" || trainerMode === "harmonic") && playbackEvents.length > 1)) return;
+      event.preventDefault();
+      if (isPlaying) {
+        stopPlayback();
+      } else {
+        playExercise(exercise, playbackStartIndex, false);
+      }
+    };
+    window.addEventListener("keydown", handleSpacePlayback);
+    return () => window.removeEventListener("keydown", handleSpacePlayback);
+  }, [exercise, isPlaying, playbackEvents.length, playbackStartIndex, playExercise, stopPlayback, trainerMode]);
+
   const playSingleNote = useCallback(async (noteOrNotes) => {
     const rawItems = Array.isArray(noteOrNotes) ? noteOrNotes.filter(Boolean) : [noteOrNotes].filter(Boolean);
     if (!rawItems.length) return;
@@ -4657,9 +4684,7 @@ export default function IntervalTrainerPage() {
                         step={1}
                         value={isPlaying ? playbackCursorIndex : playbackStartIndex}
                         onChange={(event) => {
-                          const value = Number(event.target.value);
-                          setPlaybackStartIndex(value);
-                          setPlaybackCursorIndex(value);
+                          selectPlaybackPoint(Number(event.target.value));
                         }}
                         className="relative z-20 w-full"
                       />
@@ -4687,10 +4712,7 @@ export default function IntervalTrainerPage() {
                               type="button"
                               aria-label={`Seleccionar ${event.label}`}
                               title={event.label}
-                              onClick={() => {
-                                setPlaybackStartIndex(index);
-                                setPlaybackCursorIndex(index);
-                              }}
+                              onClick={() => selectPlaybackPoint(index)}
                               className="absolute top-0 h-5 w-5 -translate-x-1/2 rounded-full bg-transparent"
                               style={{ left: `${left}%` }}
                             />
