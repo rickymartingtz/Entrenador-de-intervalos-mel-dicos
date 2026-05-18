@@ -4810,20 +4810,18 @@ export default function IntervalTrainerPage() {
                       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2.5">
                         {playbackEvents.map((event, index) => {
                           const left = playbackEvents.length <= 1 ? 0 : (index / (playbackEvents.length - 1)) * 100;
-                          const isCurrent = index === (isPlaying ? playbackCursorIndex : playbackStartIndex);
-                          const isMainChordPoint = isChordMode && (event.kind === "full" || event.kind === "single");
-                          const tickClass = isCurrent
-                            ? "h-2 w-[1.5px] bg-zinc-950"
-                            : isChordMode
-                              ? isMainChordPoint
-                                ? "h-2 w-[1.5px] bg-zinc-900"
-                                : "h-1.5 w-px bg-zinc-500"
-                              : "h-1.5 w-px bg-zinc-800";
+                          const isChordFullPoint = isChordMode && event.kind === "full";
+                          const isChordSecondaryPoint = isChordMode && !isChordFullPoint;
+                          const tickStyle = isChordFullPoint
+                            ? { width: "2px", height: "12px", backgroundColor: "#111827" }
+                            : isChordSecondaryPoint
+                              ? { width: "1px", height: "7px", backgroundColor: "#71717a" }
+                              : { width: "1px", height: "8px", backgroundColor: "#27272a" };
                           return (
                             <span
                               key={`playback-tick-${index}`}
-                              className={`absolute top-1 -translate-x-1/2 rounded-full ${tickClass}`}
-                              style={{ left: `${left}%` }}
+                              className="absolute bottom-[2px] -translate-x-1/2 rounded-[1px]"
+                              style={{ left: `${left}%`, ...tickStyle }}
                               aria-hidden="true"
                             />
                           );
